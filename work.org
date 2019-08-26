@@ -1,0 +1,21 @@
+* DONE Refactor pbu bizinfo file load
+** DONE construct new pbu bizinfo file line struct
+** DONE refactor gcs_refdata_load.go
+** DONE unit test function for gcs_refdata_load.go*
+** DONE fix other test cases
+** DONE do a connection test
+* DONE Gate login use address
+** DONE login table change
+** DONE built a module do login control(gcs_login_ctrl.go)
+   SCHEDULED: <2019-08-21 周三>
+** DONE process_gate_msg and process_rc_msg refactor
+   SCHEDULED: <2019-08-21 周三>
+** DONE process_gate_login and process_rc_msg unit test
+   SCHEDULED: <2019-08-21 周三>
+** DONE change rc simulator and do connection test
+* DONE Gcs Login Control refactor
+** DONE deal with login in two point
+* DONE Gcs command line parameter
+* TODO Gcs deal with break resend order
+* TODO Gcs deal with new order reject
+* refload +/- support
