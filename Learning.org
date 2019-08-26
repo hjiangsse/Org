@@ -178,3 +178,104 @@ Viper is a complete configuration solution for Go applications including 12-Fact
 
 Viper can be thought of as a registry for all of your applications configuration needs.
 
+** OpenTracing(Golang)
+what is ditribute tracing and why use it?
+"Ditribute tracing" is particularly well-suited for debuging and nonitoring morden distribute arch.
+*** Concept and Terminology(reading OpenTracing Semantic Specification)
+**** Data Model
+ Trace is defined implicitly by spans
+
+Example Trace:
+
+         [Span A]  ←←←(the root span)
+            |
+     +------+------+
+     |             |
+ [Span B]      [Span C] ←←←(Span C is a `ChildOf` Span A)   [ChildOf]:
+     |             |
+ [Span D]      +---+-------+
+               |           |
+           [Span E]    [Span F] >>> [Span G] >>> [Span H]      [FollowFrom]:
+                                       ↑
+                                       ↑
+                                       ↑
+                         (Span G `FollowsFrom` Span F)
+
+
+We just visualize This trace in a time axis:
+––|–––––––|–––––––|–––––––|–––––––|–––––––|–––––––|–––––––|–> time
+ [Span A···················································]
+   [Span B··············································]
+      [Span D··········································]
+    [Span C········································]
+         [Span E·······]        [Span F··] [Span G··] [Span H··]
+
+
+Every span contains the following state:
+[] op name
+[] start timestamp
+[] finish timestamp
+[] span tags, key/value pairs
+[] span logs, key/value pairs with a timestamp
+[] a SpanContext
+[] References to other spans
+
+each SpanContext contains:
+[] opentracing-implementation-dependent state(trace and span ids)
+[] baggage items(key/value pairs)
+
+**** OpenTracing API
+Tracer interface:
+Tracer interface create Spans and understands how to Inject(serialize) and
+Extract(deserialize) them across process boundaries.
+Capabilities:
+[] Start a new Span
+[] Inject a SpanContext into a carrier
+[] Extract a SpanContext from a carrier
+
+Span interface:
+Capabiiities:
+[] Retrive the Spans SpanContext
+[] Overwrite the operation name
+[] Finish the Span
+[] Set a Span Tag
+[] Log structed data
+[] Set/Get baggage item
+
+SpanContext interface:
+
+**** OpenTracing API for GoLang(yurushkuro opentracing tutorial)
+***** install jaeger in a docker image
+docker run \
+  --rm \
+  -p 6831:6831/udp \
+  -p 6832:6832/udp \
+  -p 16686:16686 \
+  jaegertracing/all-in-one:1.7 \
+  --log-level=debug
+
+if jaeger is not install, this command will install it into docker
+
+Once the jeager backend start, UI will be accessible at [[http://localhost:16696][http://localhost:16686]]
+
+***** Hello Open-Tracing
+****** no-op tracing
+[[file:~/PlayGround/OpenTracing/hello_tracing_noop.go][noop_tracing_example]] opentracing.GlobalTracer() returns a no-op tracer by default.
+
+****** Initialize a real tracer with jeager 
+[[~/PlayGround/OpenTracing/hello_tracing_jeager.go]]
+
+run it then you can see the trace in jeager UI
+
+****** Annotate the trace with tags and logs
+name you span, when we use tags vs logs
+[[~/PlayGround/OpenTracing/hello_tracing_taglog.go]]
+Now, run and look at the jeager UI again, absolutly you can see the tags and logs
+
+***** Context and Tracing Functions
+we emphis on the following topics:
+[] Tracing individual functions
+[[~/PlayGround/OpenTracing/hello_tracing_indiv_funcs.go]]
+[] Combine multiple spans into a single trace
+[] propagate the in-process context
+

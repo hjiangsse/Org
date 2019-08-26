@@ -16,6 +16,6 @@
 * DONE Gcs Login Control refactor
 ** DONE deal with login in two point
 * DONE Gcs command line parameter
-* TODO Gcs deal with break resend order
-* TODO Gcs deal with new order reject
-* refload +/- support
+* DONE Gcs deal with break resend order
+* DONE Gcs deal with new order reject
+* TODO open tracing
