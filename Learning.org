@@ -179,11 +179,10 @@ Viper is a complete configuration solution for Go applications including 12-Fact
 Viper can be thought of as a registry for all of your applications configuration needs.
 
 ** OpenTracing(Golang)
-what is ditribute tracing and why use it?
 "Ditribute tracing" is particularly well-suited for debuging and nonitoring morden distribute arch.
 *** Concept and Terminology(reading OpenTracing Semantic Specification)
 **** Data Model
- Trace is defined implicitly by spans
+Trace is defined implicitly by spans
 
 Example Trace:
 
@@ -203,6 +202,7 @@ Example Trace:
 
 
 We just visualize This trace in a time axis:
+
 ––|–––––––|–––––––|–––––––|–––––––|–––––––|–––––––|–––––––|–> time
  [Span A···················································]
    [Span B··············································]
@@ -242,8 +242,6 @@ Capabiiities:
 [] Log structed data
 [] Set/Get baggage item
 
-SpanContext interface:
-
 **** OpenTracing API for GoLang(yurushkuro opentracing tutorial)
 ***** install jaeger in a docker image
 docker run \
@@ -277,5 +275,17 @@ we emphis on the following topics:
 [] Tracing individual functions
 [[~/PlayGround/OpenTracing/hello_tracing_indiv_funcs.go]]
 [] Combine multiple spans into a single trace
+[[~/PlayGround/OpenTracing/hello_tracing_merge_spans.go]]
 [] propagate the in-process context
+In the privious example, we pass something(span) as function parameter to link the individual spans 
+together, but this will pollute our application code by introducing tracing code. So we use context.Context
+to deal with it!
+[[~/PlayGround/OpenTracing/hello_tracing_context_spans.go]]
+***** Tracing RPC request
+****** A helloword microservice application
+[] Inter-Process Context Propagation
+In order to continue the trace over the process boundaries and RPC calls,
+we need a way to propagate span context over wire. So we will introduce
+Inject and Extract.
+
 
