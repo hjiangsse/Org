@@ -92,7 +92,7 @@ running it:
 **** function destruction
 
 ** DONE Clojure core functions
-** TODO functional programming in Clojure
+** DONE functional programming in Clojure
 side effects are potentially harmful. because they introduce uncertainty about what the names in
 your code are reffering to.
 
@@ -281,11 +281,9 @@ In the privious example, we pass something(span) as function parameter to link t
 together, but this will pollute our application code by introducing tracing code. So we use context.Context
 to deal with it!
 [[~/PlayGround/OpenTracing/hello_tracing_context_spans.go]]
-***** Tracing RPC request
-****** A helloword microservice application
-[] Inter-Process Context Propagation
-In order to continue the trace over the process boundaries and RPC calls,
-we need a way to propagate span context over wire. So we will introduce
-Inject and Extract.
+***** A client-server tracing deamon
+client: [[~/PlayGround/OpenTracing/BinaryOpenTracing/client.go]]
+server: [[~/PlayGround/OpenTracing/BinaryOpenTracing/server.go]]
+
 
 
