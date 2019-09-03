@@ -25,3 +25,313 @@ git tag <your tag name>
 git tag <your tag name> -a        This will add some description to your new added tag
 git push origin --tags            [push all your tags to remote]
 git push origin <your tag name>   [push a single tag to remote]
+* Clojure
+** DONE build, running and the REPL
+** DONE install jvm and Leiningen
+   choco install jvm1.8
+   [[http://leiningen.org][leiningen site]]
+   [[https://djpowell.github.io/leiningen-win-installer/][install leiningen on windows mechine]]
+   after leiningen installed, enter
+   *$lein new app hello-world*
+   to create a clojure project
+
+   then cd into hello-world, enter
+   *$lein deps*
+   to load dependences file form centrol
+
+** DONE let emacs dance with clojure
+Table 1: Clojure Buffer Key Bindings
+| Keys	        | Description                                                                        |
+|-----------------+------------------------------------------------------------------------------------|
+| C-c M-n M-n	 | Switch to namespace of current buffer.                                             |
+| C-x C-e	     | Evaluate expression immediately preceding point.                                   |
+| C-c C-k	     | Compile current buffer.                                                            |
+| C-c C-d C-d	 | Display documentation for symbol under point.                                      |
+| M-. and M-,	 | Navigate to source code for symbol under point and return to your original buffer. |
+| C-c C-d C-a	 | Apropros search; find arbitrary text across function names and documentation.      |
+
+Table 2: CIDER Buffer Key Bindings
+| Keys	       | Description                     |
+|----------------+---------------------------------|
+| C-↑, C-↓	 | Cycle through REPL history.     |
+| C-enter	    | Close parentheses and evaluate. |
+
+
+| Keys             | Description                                                              |
+|------------------+--------------------------------------------------------------------------|
+| M-x paredit-mode | Toggle paredit mode.                                                     |
+| M-(              | Surround expression after point in parentheses (paredit-wrap-round).     |
+| C-→             | Slurp; move closing parenthesis to the right to include next expression. |
+| C-←             | Barf; move closing parenthesis to the left to exclude last expression.   |
+| C-M-f/C-M-b      | Move to the opening/closing parenthesis.                                 |
+
+** DONE Clojure basic data structure
+All of Clojures data structures are immutable, meaning you cant change them in place.
+*** Numbers in Clojure
+*** Strings in Clojure
+*** Maps in Clojure
+*** Keywords in Clojure
+*** Vectors in Clojure
+*** Lists in Clojure
+*** Function:
+**** function arity overloading
+
+#+BEGIN_SRC elisp 
+(defn multi-arity
+ ;; 3-arity arguments and body
+ ([first-arg second-arg third-arg]
+   (str first-arg second-arg third-arg))
+ ([first-arg second-arg]
+   (str first-arg second-arg))
+ ([first-arg]
+   (str first-arg)))
+#+END_SRC
+
+Use arity overloading provide default values for arguments:
+#+BEGIN_SRC elisp
+(defn x-chop
+   "Describe the kind of chop you're inflicting on someone"
+   ([name chop-type]
+      (str "I " chop-type "chop " name "! Take that!"))
+   ([name]
+      (x-chop name "karate")))
+#+END_SRC
+
+Varible arguments:
+
+#+BEGIN_SRC elisp
+(defn codger-communication
+   [whippersnapper]
+   (str "Get off my lawn, " whippersnapper "!!!"))
+
+(defn codger
+   [& whippersnappers]
+   (map codger-communication whippersnappers))
+#+END_SRC
+
+running it:
+
+(codger "Billy" "Anne-Marie" "The Incredible Bulk")
+("Get off my lawn, Billy!!!"
+ "Get off my lawn, Anne-Marie!!!"
+ "Get off my lawn, The Incredible Bulk!!!")
+
+**** function destruction
+
+** DONE Clojure core functions
+** TODO functional programming in Clojure
+side effects are potentially harmful. because they introduce uncertainty about what the names in
+your code are reffering to.
+
+Functions with size effects, on the other hand, place more of a burden on your mind grapes.
+Not only these functions are rot, but those components use these functions. They are infected by.
+
+How can you progamming without size effect? This is really a big suege!! Really BIG!!
+*** Living with (Clojure) Immutable Data Structure
+Clojure use recursion work around the side effect:
+#+BEGIN_SRC Clojure
+(defn my-sum
+             ([vals] (my-sum vals 0))
+             ([vals accumulating-total]
+                 (if (empty? vals)
+                   accumulating-total
+                   (my-sum (rest vals) (+ (first vals) accumulating-total)))))
+#+END_SRC
+
+Clojure do not use Attribute Mutation commonly used in some OO programming languange.
+Such as C++, java. Alternativly use function composition to implement the Mutation effects!
+
+example:
+#+BEGIN_SRC 
+(defn clean
+             [text]
+             (s/replace (s/trim text) #"lol" "LOL"))
+#+END_SRC
+it is so simple to write programe with function composition, just pass return value of one function
+to another function. Compare with OO languanges, the classes in OO languanges is to protect date, 
+they just want to fight against unwanted modification of private data. Just as they protect the data,
+the functions deal with the data are also been protected! This is often unnessensery.
+
+let's seen the two powerful weapons of Clojure:
+1) decoupling functions and data, let them free from each other!
+2) programming to a small set of abstractions, this will grow into more
+   reusable, composable code!
+
+*** Cool Things to do with Pure functions
+Data can be derived into new data in Clojure, but what about function? Can you Drive new functions from exist
+pure functions? Let's try it!
+
+**** Let's refresh the memory of "partial"
+(defn hundred-times (partial * 100))
+(hundred-times 100)
+
+**** Use comp to composite functions
+#+BEGIN_SRC 
+(def character
+     {:name "Smooches McCutes"
+      :attributes {:intelligence 10
+                   :strength 4
+                   :dexterity 5}})
+
+
+(def c-int (comp :intelligence :attributes))
+(def c-str (comp :strength :attributes))
+(def c-dex (comp :dexterity :attributes))
+
+(c-int character)
+(c-str character)
+(c-dex character)
+#+END_SRC
+
+* Emacs
+** Seach Text in Directory
+** Emacs multi-windows mode and windows management
+    [[http://ergoemacs.org/misc/emacs_one_max_window_vs_multi_smaller_window.html][kick this link]]
+* Emacs Org
+** DONE Deal with table
+*** Preparing tables for export
+	
+** Emacs org mode for GTD(Get Things Done)
+** TODO Use emacs prepare blogs	
+* Golang
+** Viper(小蛇)
+*** What is Viper and What you can play with viper?
+Viper is a complete configuration solution for Go applications including 12-Factor apps. It is designed to work within an application, and can handle all types of configuration needs and formats. It supports:
+
+1. setting defaults
+2. reading from JSON, TOML, YAML, HCL, envfile and Java properties config files
+3. live watching and re-reading of config files (optional)
+4. reading from environment variables
+5. reading from remote config systems (etcd or Consul), and watching changes
+6. reading from command line flags
+7. reading from buffer
+8. setting explicit values
+
+Viper can be thought of as a registry for all of your applications configuration needs.
+
+** OpenTracing(Golang)
+"Ditribute tracing" is particularly well-suited for debuging and nonitoring morden distribute arch.
+*** Concept and Terminology(reading OpenTracing Semantic Specification)
+**** Data Model
+Trace is defined implicitly by spans
+
+Example Trace:
+
+         [Span A]  ←←←(the root span)
+            |
+     +------+------+
+     |             |
+ [Span B]      [Span C] ←←←(Span C is a `ChildOf` Span A)   [ChildOf]:
+     |             |
+ [Span D]      +---+-------+
+               |           |
+           [Span E]    [Span F] >>> [Span G] >>> [Span H]      [FollowFrom]:
+                                       ↑
+                                       ↑
+                                       ↑
+                         (Span G `FollowsFrom` Span F)
+
+
+We just visualize This trace in a time axis:
+
+––|–––––––|–––––––|–––––––|–––––––|–––––––|–––––––|–––––––|–> time
+ [Span A···················································]
+   [Span B··············································]
+      [Span D··········································]
+    [Span C········································]
+         [Span E·······]        [Span F··] [Span G··] [Span H··]
+
+
+Every span contains the following state:
+[] op name
+[] start timestamp
+[] finish timestamp
+[] span tags, key/value pairs
+[] span logs, key/value pairs with a timestamp
+[] a SpanContext
+[] References to other spans
+
+each SpanContext contains:
+[] opentracing-implementation-dependent state(trace and span ids)
+[] baggage items(key/value pairs)
+
+**** OpenTracing API
+Tracer interface:
+Tracer interface create Spans and understands how to Inject(serialize) and
+Extract(deserialize) them across process boundaries.
+Capabilities:
+[] Start a new Span
+[] Inject a SpanContext into a carrier
+[] Extract a SpanContext from a carrier
+
+Span interface:
+Capabiiities:
+[] Retrive the Spans SpanContext
+[] Overwrite the operation name
+[] Finish the Span
+[] Set a Span Tag
+[] Log structed data
+[] Set/Get baggage item
+
+**** OpenTracing API for GoLang(yurushkuro opentracing tutorial)
+***** install jaeger in a docker image
+docker run \
+  --rm \
+  -p 6831:6831/udp \
+  -p 6832:6832/udp \
+  -p 16686:16686 \
+  jaegertracing/all-in-one:1.7 \
+  --log-level=debug
+
+if jaeger is not install, this command will install it into docker
+
+Once the jeager backend start, UI will be accessible at [[http://localhost:16696][http://localhost:16686]]
+
+***** Hello Open-Tracing
+****** no-op tracing
+[[file:~/PlayGround/OpenTracing/hello_tracing_noop.go][noop_tracing_example]] opentracing.GlobalTracer() returns a no-op tracer by default.
+
+****** Initialize a real tracer with jeager 
+[[~/PlayGround/OpenTracing/hello_tracing_jeager.go]]
+
+run it then you can see the trace in jeager UI
+
+****** Annotate the trace with tags and logs
+name you span, when we use tags vs logs
+[[~/PlayGround/OpenTracing/hello_tracing_taglog.go]]
+Now, run and look at the jeager UI again, absolutly you can see the tags and logs
+
+***** Context and Tracing Functions
+we emphis on the following topics:
+[] Tracing individual functions
+[[~/PlayGround/OpenTracing/hello_tracing_indiv_funcs.go]]
+[] Combine multiple spans into a single trace
+[[~/PlayGround/OpenTracing/hello_tracing_merge_spans.go]]
+[] propagate the in-process context
+In the privious example, we pass something(span) as function parameter to link the individual spans 
+together, but this will pollute our application code by introducing tracing code. So we use context.Context
+to deal with it!
+[[~/PlayGround/OpenTracing/hello_tracing_context_spans.go]]
+***** A client-server tracing deamon
+client: [[~/PlayGround/OpenTracing/BinaryOpenTracing/client.go]]
+      server: [[~/PlayGround/OpenTracing/BinaryOpenTracing/server.go]]
+
+
+** Golang Archive Package
+*** archive/tar access to tar archive
+* One Linux commad One day(common usage)
+** tar
+*** Creating an uncompressed tar Archive:   
+  $tar cvf file.tar *.c
+*** Extracting files from tar Archive:
+  $tar xvf file.tar
+*** gzip compression on the Archive, using option -z:
+  $tar cvzf file.tar.gz *.c
+*** Extracting a gzip tar Archive using option -xvzf:
+  $tar xvzf file.tar.gz
+*** Create compressed tar Achive in Linux using -j
+  $tar cvfj file.tar.tbz *.c
+*** List the contents of the tar file
+	$tar tf file.tar.gz
+** for
+ 
