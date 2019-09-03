@@ -158,6 +158,8 @@ pure functions? Let's try it!
 
 * Emacs
 ** Seach Text in Directory
+** Emacs multi-windows mode and windows management
+    [[http://ergoemacs.org/misc/emacs_one_max_window_vs_multi_smaller_window.html][kick this link]]
 * Emacs Org
 ** DONE Deal with table
 *** Preparing tables for export
@@ -303,4 +305,6 @@ client: [[~/PlayGround/OpenTracing/BinaryOpenTracing/client.go]]
 *** Create compressed tar Achive in Linux using -j
   $tar cvfj file.tar.tbz *.c
 *** List the contents of the tar file
-  $tar tf file.tar.gz
+	$tar tf file.tar.gz
+** for
+ 
