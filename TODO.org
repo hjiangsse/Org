@@ -1,0 +1,5 @@
+* Gcs TODO
+** DONE function convert a file to zip bytes buffer
+** DONE Refdata request structure and serialize
+** DONE the framework of refdata request dealing
+** TODO test the framework of refdata request dealing

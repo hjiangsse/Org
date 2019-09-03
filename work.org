@@ -18,4 +18,7 @@
 * DONE Gcs command line parameter
 * DONE Gcs deal with break resend order
 * DONE Gcs deal with new order reject
-* TODO open tracing
+* DONE open tracing
+* gcs 
+./gate --mode="protest" --ordnum="2" --addr="127.0.0.1" --techpbu="09X57   " --bizpbu="22028   " --bizid="3"
+

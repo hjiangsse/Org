@@ -92,7 +92,7 @@ running it:
 **** function destruction
 
 ** DONE Clojure core functions
-** DONE functional programming in Clojure
+** TODO functional programming in Clojure
 side effects are potentially harmful. because they introduce uncertainty about what the names in
 your code are reffering to.
 
@@ -156,6 +156,8 @@ pure functions? Let's try it!
 (c-dex character)
 #+END_SRC
 
+* Emacs
+** Seach Text in Directory
 * Emacs Org
 ** DONE Deal with table
 *** Preparing tables for export
@@ -283,7 +285,22 @@ to deal with it!
 [[~/PlayGround/OpenTracing/hello_tracing_context_spans.go]]
 ***** A client-server tracing deamon
 client: [[~/PlayGround/OpenTracing/BinaryOpenTracing/client.go]]
-server: [[~/PlayGround/OpenTracing/BinaryOpenTracing/server.go]]
+      server: [[~/PlayGround/OpenTracing/BinaryOpenTracing/server.go]]
 
 
-
+** Golang Archive Package
+*** archive/tar access to tar archive
+* One Linux commad One day(common usage)
+** tar
+*** Creating an uncompressed tar Archive:   
+  $tar cvf file.tar *.c
+*** Extracting files from tar Archive:
+  $tar xvf file.tar
+*** gzip compression on the Archive, using option -z:
+  $tar cvzf file.tar.gz *.c
+*** Extracting a gzip tar Archive using option -xvzf:
+  $tar xvzf file.tar.gz
+*** Create compressed tar Achive in Linux using -j
+  $tar cvfj file.tar.tbz *.c
+*** List the contents of the tar file
+  $tar tf file.tar.gz
