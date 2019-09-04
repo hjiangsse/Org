@@ -1,30 +1,31 @@
-* git create and merge a branch
-** create a branch
+* Git
+** git create and merge a branch
+*** create a branch
 git checkout -b iss53
-** merge a branch into a master
-git checkout master
-git pull origin master
-git merge test
-git push origin master
-** delete a brach local and remote
-$ git push --delete <remote_name> <branch_name>
-$ git branch -d <branch_name>
-Note that in most cases the remote name is origin.
+*** merge a branch into a master
+ git checkout master
+ git pull origin master
+ git merge test
+ git push origin master
+*** delete a brach local and remote
+ $ git push --delete <remote_name> <branch_name>
+ $ git branch -d <branch_name>
+ Note that in most cases the remote name is origin.
 
-Delete Local Branch
-To delete the local branch use one of the following:
-$ git branch -d branch_name
-$ git branch -D branch_name
-* git add(delete) tags locally and remotelly
-** delete tags locally and remotelly
-git push --delete origin tagname
-git tag --delete tagname
+ Delete Local Branch
+ To delete the local branch use one of the following:
+ $ git branch -d branch_name
+ $ git branch -D branch_name
+** git add(delete) tags locally and remotelly
+*** delete tags locally and remotelly
+ git push --delete origin tagname
+ git tag --delete tagname
 
-** add and push tag remotelly
-git tag <your tag name>
-git tag <your tag name> -a        This will add some description to your new added tag
-git push origin --tags            [push all your tags to remote]
-git push origin <your tag name>   [push a single tag to remote]
+*** add and push tag remotelly
+ git tag <your tag name>
+ git tag <your tag name> -a        This will add some description to your new added tag
+ git push origin --tags            [push all your tags to remote]
+ git push origin <your tag name>   [push a single tag to remote]
 * Clojure
 ** DONE build, running and the REPL
 ** DONE install jvm and Leiningen
@@ -192,7 +193,7 @@ pure functions? Let's try it!
 *** Preparing tables for export
 	
 ** Emacs org mode for GTD(Get Things Done)
-** TODO Use emacs prepare blogs	
+** Org super agenda
 * Golang
 ** Viper(小蛇)
 *** What is Viper and What you can play with viper?
@@ -334,4 +335,24 @@ client: [[~/PlayGround/OpenTracing/BinaryOpenTracing/client.go]]
 *** List the contents of the tar file
 	$tar tf file.tar.gz
 ** for
- 
+** grep
+*** use grep to find a string in multi files(files under a directory)
+  grep -rnw 'path/to/somewhere' -e 'pattern'
+  + -r or -R is recursive
+  + -n is line number 
+  + -w stands for match the whole word
+  + -l just give the file name of matching files
+  
+  example:
+  1. only search through those file which have .c or .h extensions:
+     grep --include=\*.{c,h} -rnw 'path/to/somewhere' -e "pattern"
+
+  2. exclude searching all the file ending with .o extension:
+     grep --exclude=*.o -rnw 'path/to/somewhere' -e "pattern"
+
+  3. exclude some directories
+     grep --exclude-dir={dir1,dir2,*.dst} -rnw 'path/to/somewhere' -e "pattern"
+** sed
+*** replace a string in multiple files using sed
+  sed -i 's/foo/bar/g' *
+	
