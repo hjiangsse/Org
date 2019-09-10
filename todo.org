@@ -28,5 +28,5 @@
 ** DONE Refdata request structure and serialize
 ** DONE the framework of refdata request dealing
 ** DONE test the framework of refdata request dealing
-** IN-PROGRESS refdata dealing(send struct data instead of file)
-** golang package walkthough(context)
+** DONE refdata dealing(send struct data instead of file)
+** TODO golang package walkthough(context)

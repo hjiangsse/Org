@@ -317,9 +317,220 @@ to deal with it!
 client: [[~/PlayGround/OpenTracing/BinaryOpenTracing/client.go]]
       server: [[~/PlayGround/OpenTracing/BinaryOpenTracing/server.go]]
 
-
 ** Golang Archive Package
 *** archive/tar access to tar archive
+
+** Golang zip(deflate compress) a string or a byte array
+   archive/zip is used to zip and unzip file, it is so difficult
+   to zip/unzip string or byte slice. so it is time to use compress/flate
+   instead. The follow is the code i use:
+#+BEGIN_SRC 
+   package main
+
+import (
+	"bytes"
+	"compress/flate"
+	"fmt"
+	"io"
+	"os"
+)
+
+func main() {
+	buf := new(bytes.Buffer)
+	flateWriter, err := flate.NewWriter(buf, flate.BestCompression)
+	if err != nil {
+		panic(err)
+	}
+	defer flateWriter.Close()
+
+	flateWriter.Write([]byte("This is the end of the world!"))
+	flateWriter.Flush()
+	fmt.Print("After flate compress: %s\n", buf)
+
+	//unpress the flate buffer
+	flateReader := flate.NewReader(buf)
+	defer flateReader.Close()
+
+	fmt.Println("After unpress: ")
+	io.Copy(os.Stdout, flateReader)
+}
+#+END_SRC
+** Golang zlib compress and decompress in networking programming(with java)
+*** Java Server
+#+BEGIN_SRC java 
+import java.net.*;
+import java.io.*;
+import java.util.*;
+import java.util.zip.*;
+
+public class Server
+{
+	//initialize socket and input stream
+	private Socket socket = null;
+	private ServerSocket server = null;
+	private DataInputStream in = null;
+
+	// constructor with port
+	public Server(int port)
+	{
+		//starts server and waits for a connection
+		try
+		{
+			server = new ServerSocket(port);
+			System.out.println("Server started");
+
+			System.out.println("Wait for a client ...");
+
+			socket = server.accept();
+			System.out.println("Client accepted");
+
+			// take input from the client socket
+			in = new DataInputStream(
+			   new BufferedInputStream(socket.getInputStream()));
+
+			// reads message from client 
+			try
+			{
+				byte[] recvData = new byte[1024];
+				int cnt = in.read(recvData);
+		        byte[] usefulData = Arrays.copyOfRange(recvData, 0, cnt);
+
+				System.out.println(cnt);
+
+				try {
+					//decompress the bytes using zlib
+					Inflater decompresser = new Inflater();
+					System.out.println(cnt);
+					decompresser.setInput(usefulData, 0, cnt);
+					byte[] decomResult = new byte[1024];
+					int decomLen = decompresser.inflate(decomResult);
+					System.out.println(decomLen);
+					decompresser.end();
+
+					
+
+			   	 	String s = new String(decomResult, 0, decomLen, "UTF-8");
+					System.out.println(s);
+				} catch (java.util.zip.DataFormatException ex) {
+					System.out.println(ex);
+				}
+			}
+			catch(IOException i)
+			{
+				System.out.println(i);
+			}
+		
+			//close connection
+			socket.close();
+			in.close();
+		}
+		catch(IOException i)
+		{
+			System.out.println(i);
+		}
+	}
+
+	public static void main(String args[]) {
+		Server server = new Server(5000);
+	}
+}
+#+END_SRC
+*** Golang Clinet
+#+BEGIN_SRC go
+package main
+
+import (
+	"bytes"
+	"compress/zlib"
+	"fmt"
+	"net"
+	"time"
+)
+
+func main() {
+	serverConn, err := net.Dial("tcp", "localhost:5000")
+	if err != nil {
+		panic(err)
+	}
+
+	var b bytes.Buffer
+	w := zlib.NewWriter(&b)
+	w.Write([]byte("This is the start of a new life"))
+	w.Close()
+
+	n, err := serverConn.Write(b.Bytes())
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("send %d bytes data to server.\n", n)
+
+	time.Sleep(5 * time.Second)
+}
+#+END_SRC
+  Becareful, when you finish your compress(decompress) action, close your 
+  compressor(decompressor) immediately
+** Golang concurrency pattern -- context 
+   In Go servers, each incoming request is handled in its own goroutine. 
+   Request handlers often start additional goroutines to access backends 
+   such as databases and RPC services.
+ 
+   The set of goroutines working on a request typically needs access to 
+   request-specific values such as the identity of the end user, 
+   authorization tokens, and the request's deadline. When a request is 
+   canceled or times out, all the goroutines working on that request should 
+   exit quickly so the system can reclaim any resources they are using.
+   [如何处理一个请求相关的所有goroutines的退出？]
+
+   At Google, we developed a context package that makes it easy to pass 
+   request-scoped values, cancelation signals, and deadlines
+   [context中所传递的信息] 
+   across API boundaries to all the goroutines involved in handling a request.
+*** Context interface
+#+BEGIN_SRC 
+  type Context interface {
+    // Done returns a channel that is closed when this Context is canceled
+    // or times out.
+    Done() <-chan struct{}
+
+    // Err indicates why this context was canceled, after the Done channel
+    // is closed.
+    Err() error
+
+    // Deadline returns the time when this Context will be canceled, if any.
+    Deadline() (deadline time.Time, ok bool)
+
+    // Value returns the value associated with key or nil if none.
+    Value(key interface{}) interface{}
+   }
+#+END_SRC
+
+  Do not store Contexts inside a struct type; instead, pass a Context explicitly to each function that needs it. The Context should be the first parameter, typically named ctx:
+#+BEGIN_SRC 
+  func DoSomething(ctx context.Context, arg Arg) error {
+	// ... use ctx ...
+  }
+#+END_SRC
+*** Create context
+**** background context
+      ctx, cancel := context.Background()
+     This should be only used at a high level(in main or the top level request handler)
+**** TDTO context
+      ctx, cancel := context.TODO()
+      this also create an empty context
+*** Derive context 
+**** WithValue
+     context.WithValue(parent Context, key, val interface{}) (ctx Context, cancel CancelFunc)
+     once you get a context with value, any context that derives from this gets this value
+**** WithCancel
+     context.WithCancel(parent Context) (ctx Context, cancel CancelFunc)
+     you can pass around the ctx, but *Never* pass the /cancel/ function
+**** WithDeadline
+     context.WithDeadline(parent Context, d time.Time) (ctx Context, cancel CancelFunc)
+     ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(2 * time.Second))
+*** Accept and use context
+** refload refactor
+  aaa|bbb|ccc|ddd|2|f1|f2|f3|f4
+  aaa|bbb|ccc|ddd|3|f1|f2|f3|d1|d2|d3
 * One Linux commad One day(common usage)
 ** tar
 *** Creating an uncompressed tar Archive:   
@@ -355,4 +566,5 @@ client: [[~/PlayGround/OpenTracing/BinaryOpenTracing/client.go]]
 ** sed
 *** replace a string in multiple files using sed
   sed -i 's/foo/bar/g' *
-	
+** regexp
+ [[https://medium.com/factory-mind/regex-tutorial-a-simple-cheatsheet-by-examples-649dc1c3f285][regexp introduction]]
