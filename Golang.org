@@ -1,0 +1,55 @@
+* Golang in action
+** golang tools
+*** build windows exe file on linux platform
+	GOOS=windows GOARCH=amd64  go build ~/go/src/xchg.ai/sse/smalltest
+    上面这个指令在Linux平台上可以编译出windows可执行文件
+*** clean build out files
+    go clean
+*** build and running the excute file
+    go run main.go xxx
+    xxx 是参数
+*** go env
+    察看GO开发环境，可以为我们排查错误提供帮助
+*** go install
+    如果编译生成的是可执行文件，安装在$GOPATH/bin目录下
+    如果编译生成的是可引用的库，安装在$GOPATH/pkg目录下
+*** go fmt
+*** go vet
+*** go test
+** golang doc
+*** 终端查看文档：
+	在当前目录下执行go doc, 输出当前目录下的文档信息；
+    go doc packageName 列出这个包的信息，包括文档，方法，结构体等
+    go doc json
+    go doc json.Decoder
+	go doc json.Decoder.Decode
+    可以一步步缩小查找范围
+*** 在线浏览文档：
+*** 生成自己的文档（添加例子）：
+* Golang test and benchmark
+   func Test_XXXX(b *testing.B) {
+	  //this is the testing code
+   }
+
+   //gen profile
+   go test -bench=. -benchmem -memprofile memprofile.out -cpuprofile profile.out
+
+   //check profile
+   go tool pprof profile.out
+* Golang web development
+** Http Server
+*** 服务器的主要职责：	
+    Process dynamic requests: [处理动态请求] 
+	Process incoming requests from users who browse the website, log into their accounts or post images.
+    Serve static assets: [静态文件服务]
+	Serve JavaScript, CSS and images to browsers to create a dynamic experience for the user.
+    Accept connections: [网络连接管理]
+	The HTTP Server must listen on a specific port to be able to accept connections from the internet.
+
+** 路由器
+   [[file:~/PlayGround/Golang/PlayWeb/hello_router.go][play with the gorilla router now!]]
+
+** Connet with MySQL database
+   Install a mysql server on a linux mechine
+   
+   
