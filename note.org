@@ -44,6 +44,8 @@ git checkout -b iss53
 *** https://stackoverflow.com/questions/161813/how-to-resolve-merge-conflicts-in-git 
 ** deal with remote repo
 *** [[https://git-scm.com/book/en/v2/Git-Basics-Working-with-Remotes][git deal with remote repo]]
+** using git under emacs -- magit
+  
 * Clojure
 ** DONE build, running and the REPL
 ** DONE install jvm and Leiningen
@@ -920,5 +922,4 @@ or
    
 * 科学上网
 ** Linux 上sock5转http(s)代理
-*** goproxy
-	
+*** goproxy	
