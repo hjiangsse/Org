@@ -26,11 +26,7 @@ git checkout -b iss53
    
  git push origin --tags            [push all your tags to remote]
  git push origin <your tag name>   [push a single tag to remote]
-** git credential system  
-** 科学上网
-	136.244.67.88           London
-	149.28.68.144           Los Angeles
-** Git 設置和取消代理：
+** git proxy set and unset
    git config --global https.proxy http://127.0.0.1:1080
    git config --global https.proxy sock5://127.0.0.1:1080
    git config --global https.proxy https://127.0.0.1:1080
@@ -39,11 +35,13 @@ git checkout -b iss53
    git config --global --unset http.proxy
    git config --global --unset https.proxy
    npm config delete prox
-* Using git tags:
+** using git tags:
 *** the difference bettween branches and tags:
    branches are mutable references
    tags are immutable references
    [[https://stackoverflow.com/questions/18216991/create-a-tag-in-a-github-repository][git tags]]
+** deal with merge conflict
+*** https://stackoverflow.com/questions/161813/how-to-resolve-merge-conflicts-in-git 
 * Clojure
 ** DONE build, running and the REPL
 ** DONE install jvm and Leiningen
