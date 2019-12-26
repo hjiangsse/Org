@@ -42,6 +42,8 @@ git checkout -b iss53
    [[https://stackoverflow.com/questions/18216991/create-a-tag-in-a-github-repository][git tags]]
 ** deal with merge conflict
 *** https://stackoverflow.com/questions/161813/how-to-resolve-merge-conflicts-in-git 
+** deal with remote repo
+*** [[https://git-scm.com/book/en/v2/Git-Basics-Working-with-Remotes][git deal with remote repo]]
 * Clojure
 ** DONE build, running and the REPL
 ** DONE install jvm and Leiningen
