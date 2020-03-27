@@ -1,0 +1,425 @@
+* something about interface in golang:
+** interface basic 
+  "Interfaces in Go provide a way to specify the behavior of an object: if something can do this, then it can be used here."
+  the previous sentence from in <effective go>, it means that if something jump like a monkey, drink like a monkey, talking like a monkey...,
+  then it is just a monkey, it can adapt any environment that a monkey can live.(sometimes golang object is just like some kind of monkey)
+
+  #+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"sort"
+)
+
+type Sequnce []int
+
+//implement sort.Interface
+func (s Sequnce) Len() int {
+	return len(s)
+}
+
+func (s Sequnce) Less(i, j int) bool {
+	return s[i] < s[j]
+}
+
+func (s Sequnce) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+func (s Sequnce) Copy() Sequnce {
+	copy := make([]int, 0, len(s))
+	return append(copy, s...)
+}
+
+func (s Sequnce) String() string {
+	var res string
+	seqlen := len(s)
+	res += genCaps(seqlen)
+	res += "|"
+
+	for i := 0; i < seqlen; i++ {
+		res += fmt.Sprintf("%v|", s[i])
+	}
+	res += "\n"
+	res += genCaps(seqlen)
+
+	return res
+}
+
+func genCaps(n int) string {
+	var res string
+	for i := 0; i < n; i++ {
+		res += fmt.Sprintf("%v", "--")
+	}
+	res += "-\n"
+	return res
+}
+
+func main() {
+	/*
+		array := []int{3, 1, 9, 5, 4}
+		seq := Sequnce(array)
+
+		fmt.Println("Before sorted: ")
+		fmt.Println(seq)
+
+		sort.Sort(seq)
+		fmt.Println("After sorted: ")
+		fmt.Println(seq)
+	*/
+	var seq Sequnce = []int{3, 2, 1, 4, 5}
+	fmt.Println(seq)
+	copy_seq := seq.Copy()
+	fmt.Println(copy_seq)
+
+	normalSlice := []int{3, 2, 1, 4, 5}
+	sort.Sort(Sequnce(normalSlice))
+	fmt.Println(normalSlice)
+}
+  #+END_SRC
+
+  In the privous code split, we define a "Sequece" type, which has the same as []byte except the type name.
+  The methods of "Sequence" type, Len(), Less() and Swap() just implement the sort.Interface:
+
+  #+BEGIN_SRC
+type Interface interface {
+	// Len is the number of elements in the collection.
+	Len() int
+	// Less reports whether the element with
+	// index i should sort before the element with index j.
+	Less(i, j int) bool
+	// Swap swaps the elements with indexes i and j.
+	Swap(i, j int)
+}
+#+END_SRC
+
+   Also String() method under "Sequece" type, implement another interface;
+   
+   #+BEGIN_SRC
+   normalSlice := []int{3, 2, 1, 4, 5}
+   sort.Sort(normalSlice)
+   fmt.Println(normalSlice)
+#+END_SRC
+
+   The privous code can't run, because normalSlice not implement sort.Interface;
+   #+BEGIN_SRC
+   sort.Sort(Sequence(normalSlice))
+#+END_SRC
+   then this will be ok! So, if one type of object does not implement arbitray interface, so it can't be using in
+   any circumenstance need this interface. if it can be change into another type and that type implement it. you
+   can change the type and then using it!
+** interface conversions and type assertions
+    #+BEGIN_SRC
+var abnormalSlice sort.Interface = normalSlice
+#+END_SRC
+    Error message: 
+	[]int does not implement sort.Interface (missing Len method)
+	we can see normalSlice type is []byte, it does not implement sort.Interface;
+    so it can't be change to a value with this interface type.
+
+	x don't behave like a monkey is not a monkey!
+
+	now let's see how to deal with a value when we don't know the concrete type
+    #+BEGIN_SRC
+package main
+
+import "fmt"
+
+type jump interface {
+	doJump()
+}
+
+type fly interface {
+	doFly()
+}
+
+type Monkey struct {
+	hight    uint32
+	distance uint32
+}
+
+func (m *Monkey) doJump() {
+	fmt.Printf("I can jump %d meters high, and %d meters distance.\n", m.hight, m.distance)
+}
+
+type Bird struct {
+	distance uint32
+}
+
+func (b *Bird) doFly() {
+	fmt.Printf("I can fly %d miles away!\n", b.distance)
+}
+
+func main() {
+	animalSeq := make([]interface{}, 3)
+
+	animalSeq[0] = &Monkey{
+		hight:    2,
+		distance: 10,
+	}
+
+	animalSeq[1] = &Bird{
+		distance: 100,
+	}
+
+	animalSeq[2] = "just a string"
+
+	//iterate on the animal sequece,
+	for _, e := range animalSeq {
+		switch e := e.(type) {
+		case *Monkey:
+			e.doJump()
+		case *Bird:
+			e.doFly()
+		default:
+			fmt.Printf("I don't know the type of %v\n", e)
+		}
+	}
+}
+#+END_SRC
+** how golang chase generality using interfaces
+   For example, we have an function which implement some kind of algorithm(such as quick-sort):
+   #+BEGIN_SRC
+   func some_algorith_method(a sort.Interface, b int, e int) {
+      ...
+   }
+#+END_SRC
+   this "some_algorithm_method" expect "a" implement sort.Interface interface; if you have any
+   value, which implement this interface, you can pass it into the function; 
+
+   extanding the privious example, we can write a function like this:
+   #+BEGIN_SRC
+   func myfunc(a InterfaceA) InterfaceB {
+     ...
+   }
+#+END_SRC
+   it can recieve any value implement InterfaceA, and return any value implement InterfaceB;
+* something about the golang sync package:
+  "Package sync provides basic synchronization primitives such as mutual exclusion locks. 
+  Other than the Once and WaitGroup types, most are intended for use by low-level library routines. 
+  Higher-level synchronization is better done via channels and communication."
+
+  the previous document tell us sync package is mainly used for low-level synchronization.
+** sync.Once
+#+BEGIN_SRC
+func main() {
+	var once sync.Once
+	onceBody := func() {
+		fmt.Println("Only once")
+	}
+
+	done := make(chan bool)
+
+	for i := 0; i < 10; i++ {
+		go func() {
+			once.Do(onceBody)
+			done <- true
+		}()
+	}
+
+	for i := 0; i < 10; i++ {
+		<-done
+	}
+}
+#+END_SRC
+   The privious code will print just one line of "Only once", if you expected 10 line of text, you are terribly wrong!
+   
+   Let's dig into the code of once.go, check how the "Only once" magic is implemented!
+#+BEGIN_SRC
+   type Once struct {
+	  done uint32
+	  m    Mutex
+   }
+#+END_SRC
+   when initialize an insatance of sync.Once, the field "done" will set to 0, let's see what happens when once.Do is
+   invoked!
+#+BEGIN_SRC
+func (o *Once) Do(f func()) {
+	if atomic.LoadUint32(&o.done) == 0 {
+		o.doSlow(f)
+	}
+}
+#+END_SRC
+   when we first invoke once.Do, o.done is just 0, so o.doSlow() is invoked;
+#+BEGIN_SRC
+   func (o *Once) doSlow(f func()) {
+	o.m.Lock()
+	defer o.m.Unlock()
+	if o.done == 0 {
+		defer atomic.StoreUint32(&o.done, 1)
+		f()
+	  }
+   }
+#+END_SRC
+   doSlow will first increment the o.Done by 1, then do the real work, invoke f;
+   after that o.Done will never back to be 0, so no matter how many times you invoke 
+   sync.Once() again, the f will not be invoked! 
+** sync.Pool...
+   A Pool is a set of temporary objects that may be individually saved and retrieved.
+   As the name shows, it is just like the trick bag of an old magican! We you want some thing,
+   you put your hand into the pag, and catch it out; Once you put back, they will disappear without a trace!
+#+BEGIN_SRC
+   type Student struct {
+	Name string
+	Age  uint32
+}
+
+func (s *Student) String() string {
+	return fmt.Sprintf("[name: %v, age %v]", s.Name, s.Age)
+}
+
+func (s *Student) Init(name string, age uint32) {
+	s.Name = name
+	s.Age = age
+}
+
+var stuPool = sync.Pool{
+	New: func() interface{} {
+		return new(Student)
+	},
+}
+
+func main() {
+	stu1 := stuPool.Get().(*Student)
+	fmt.Println(stu1)      //1
+
+	stu1.Init("abc1", 22)
+	fmt.Println(stu1)      //2
+
+	stuPool.Put(stu1)
+
+	stu2 := stuPool.Get().(*Student)
+	fmt.Println(stu2) //3
+}
+#+END_SRC
+  first we get an Student entry from the Pool, 1 will print: [name: , age 0]
+  after we init the entry, 2 will print :[name: abc1, age 22]
+  then put the entry back to Pool, after that get an entry from the pool again,
+  we can see 3 print: [name: abc1, age 22]
+
+#+BEGIN_SRC
+  var wg sync.WaitGroup
+	sig := make(chan int)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		stu1 := stuPool.Get().(*Student)
+		stu1.Init("name", 10)
+		stuPool.Put(stu1)
+
+		close(sig)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		<-sig
+		stu2 := stuPool.Get().(*Student)
+		fmt.Println(stu2)
+	}()
+
+	wg.Wait()
+#+END_SRC
+   The previous code split tell a story of two go routine use a single sync.Pool   
+
+* golang concurrent patterns:
+** Pipeline and cancellation:
+   [[file:/home/hjiang/Documents/Org/graph/pipeline.jpg]]
+   a pipe line is a series of stages connected by channels
+*** example1: Squaring numbers
+    #+BEGIN_SRC
+	func gen(nums ...int) <-chan int {
+	out := make(chan int)
+	go func() {
+		for _, n := range nums {
+			out <- n
+		}
+		close(out)
+	}()
+	return out
+}
+
+func sq(in <-chan int) <-chan int {
+	out := make(chan int)
+	go func() {
+		for n := range in {
+			out <- n * n
+		}
+		close(out)
+	}()
+	return out
+}
+
+func main() {
+	/*
+		//setup the pipeline
+		c := gen(2, 3, 4)
+		out := sq(c)
+
+		fmt.Println(<-out)
+		fmt.Println(<-out)
+	*/
+	for n := range sq(sq(gen(2, 3, 4))) {
+		fmt.Println(n)
+		}
+}
+    #+END_SRC
+	in the previous code, gen is the source(producer), sq is the middle stage and main is the final consumer.
+    
+    for n := range sq(sq(gen(2, 3, 4))) {
+		fmt.Println(n)
+	}
+
+	we can put any number of middle stages between producer and consumer. just like "sq(sq(...."
+
+*** example2: fan-out and fan-in
+	[[file:~/Documents/Org/graph/merge_pipeline.jpg]]
+	
+	fan-out : multiple function can read from the same channel until that channel is closed.
+    fan-int : a function can read from multiple input and multiplexing the inputchannels onto
+              a output channel, when all the inputs are closed, the output channel can be
+              closed!
+     #+BEGIN_SRC
+func merge(cs ...<-chan int) <-chan int {
+	var wg sync.WaitGroup
+	out := make(chan int)
+
+	output := func(c <-chan int) {
+		for n := range c {
+			out <- n
+		}
+		wg.Done()
+	}
+
+	wg.Add(len(cs))
+	for _, c := range cs {
+		go output(c)
+	}
+
+	//the roomkeeper routine, when all output routines
+	//are done, close the out channel
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+	return out
+}
+     #+END_SRC
+
+*** Stopping shortly: face some pragmatic way in pipeline
+	in the previous examples, we assume that in every stage, all in-bound data will be
+    eated && when out-bound data are send out, the out-bound channels will be closed!
+
+	But, in paractice, stages do not always receive all the inbound values!
+	
+	
+	if one stage do not want to receive in-bound values anymore, it want to quit early, how?
+	how to provide a way for downstream stages to indicate to the senders they will stop accepting input?
+
+    close(done)
+*** example: md5sum
+** Context:
