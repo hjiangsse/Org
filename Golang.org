@@ -183,6 +183,96 @@ go tool pprof http://localhost:6060/debug/pprof/block     # goroutine blocking p
 # 下载mutex profile
 go tool pprof http://localhost:6060/debug/pprof/mutex
 
+*** using pprof get heap message
+	go tool pprof http://localhost:6060/debug/pprof/heap
+    top
+    list
+    traces
+*** memory leak:
+**** how to find memory leak?
+     1. write your own batch file monitor the memory usage of your program:
+#+BEGIN_SRC
+#!/bin/bash
+prog_name="demo1"
+prog_mem=$(pidstat -r -u -h -C $prog_name |awk 'NR==4{print $12}')
+time=$(date "+%Y-%m-%d %H:%M:%S")
+echo $time"\tmemory(Byte)\t"$prog_mem >>~/record/prog_mem.log
+#+END_SRC
+        or you can use top | grep "your_programe_name" check memory useage
+     2. use pprof
+        a leak deamon:
+#+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"net/http"
+	_ "net/http/pprof"
+	"os"
+	"time"
+)
+
+func main() {
+	go func() {
+		ip := "0.0.0.0:6060"
+		if err := http.ListenAndServe(ip, nil); err != nil {
+			fmt.Printf("start pprof failed on %s\n", ip)
+			os.Exit(1)
+		}
+	}()
+
+	outChan := make(chan int)
+
+	//dead code, never read from the channel
+	go func() {
+		if false {
+			<-outChan
+		}
+		select {}
+	}()
+
+	//spwan 10 routines per second,
+	tick := time.Tick(time.Second / 10)
+	i := 0
+	for range tick {
+		i++
+		fmt.Println(i)
+		alloc1(outChan)
+	}
+}
+
+func alloc1(outChan chan<- int) {
+	go alloc2(outChan)
+}
+
+func alloc2(outChan chan<- int) {
+	go func() {
+		defer fmt.Println("alloc-fm exit")
+		//alloc some memory
+		buf := make([]byte, 1024*1024*10)
+		_ = len(buf)
+		fmt.Println("alloc done")
+
+		outChan <- 1
+	}()
+}
+#+END_SRC
+        in the privious code, main routine create 10 routine every second,
+        beacause each routine is wait on "outChan<-1", so the allocated memory
+        can not be freed.
+
+		we use "go tool pprof" get the infomation of goroutines:
+
+		go tool pprof http://localhost:6060/debug/pprof/goroutine
+		
+		do privious command two time, get:
+		/Users/hjiang/pprof/pprof.goroutine.001.pb.gz
+        /Users/hjiang/pprof/pprof.goroutine.002.pb.gz
+
+		then, enter:
+		go tool pprof -base /Users/hjiang/pprof/pprof.goroutine.001.pb.gz /Users/hjiang/pprof/pprof.goroutine.002.pb.gz
+		get:
+	    
 * Golang concurrent pattern
 ** confinement [限定，不涉及同步原语]
    find some method or make a convetion to ensure that the information is only
