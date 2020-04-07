@@ -51,5 +51,489 @@
 
 ** Connet with MySQL database
    Install a mysql server on a linux mechine
-   
-   
+      
+* Golang pprof
+** profiling a golang program
+  #+BEGIN_SRC
+package main
+
+import (
+	"bufio"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"runtime"
+	"runtime/pprof"
+	"strconv"
+	"sync"
+)
+
+const (
+	DIRPATH    string = "./"
+	FILENAME   string = "file"
+	FILESUFFIX string = ".txt"
+)
+
+var fileIndexes []int = []int{1, 2, 3, 4}
+
+var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
+var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
+
+func main() {
+	var wg sync.WaitGroup
+
+	flag.Parse()
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		defer f.Close() // error handling omitted for example
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
+	for _, i := range fileIndexes {
+		filePath := DIRPATH + FILENAME + strconv.Itoa(i) + FILESUFFIX
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			file, err := os.Open(filePath)
+			if err != nil {
+				panic(err)
+			}
+
+			defer file.Close()
+
+			scanner := bufio.NewScanner(file)
+			for scanner.Scan() {
+				fmt.Println(scanner.Text())
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	if *memprofile != "" {
+		f, err := os.Create(*memprofile)
+		if err != nil {
+			log.Fatal("could not create memory profile: ", err)
+		}
+		defer f.Close() // error handling omitted for example
+		runtime.GC()    // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			log.Fatal("could not write memory profile: ", err)
+		}
+	}
+}
+  #+END_SRC
+  the privious code show how to populate pprof in a golang program  
+
+  after you build the project, the following command will generate the profile:
+  =test_profile -cpuprofile test_profile.prof=
+
+  then you can use the profile to invesgate the cpu usage sketch of the program:
+  =go tool pprof test_pprof test_pprof.prof=
+
+  when you in the pprof mode, you can type:
+  =web=
+  generate a graph of the program.
+  
+** using profile analyse routines stack
+*** using net/http/pprof
+#+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"net/http"
+	_ "net/http/pprof"
+)
+
+func main() {
+	ip := "0.0.0.0:6060"
+	if err := http.ListenAndServe(ip, nil); err != nil {
+		fmt.Println("start pprof failed on %s\n", ip)
+	}
+}
+#+END_SRC
+
+open browser, and input http://localhost:6060/debug/pprof/
+you will get a page.
+
+use command line get profile message:
+# 下载cpu profile，默认从当前开始收集30s的cpu使用情况，需要等待30s
+go tool pprof http://localhost:6060/debug/pprof/profile                 # 30-second CPU profile
+go tool pprof http://localhost:6060/debug/pprof/profile?seconds=120     # wait 120s
+
+# 下载heap profile
+go tool pprof http://localhost:6060/debug/pprof/heap      # heap profile
+
+# 下载goroutine profile
+go tool pprof http://localhost:6060/debug/pprof/goroutine # goroutine profile
+
+# 下载block profile
+go tool pprof http://localhost:6060/debug/pprof/block     # goroutine blocking profile
+
+# 下载mutex profile
+go tool pprof http://localhost:6060/debug/pprof/mutex
+
+* Golang concurrent pattern
+** confinement [限定，不涉及同步原语]
+   find some method or make a convetion to ensure that the information is only
+   avaliable from one concurrent process(routine).
+*** Ad hoc confinement
+#+BEGIN_SRC
+package main
+
+import "fmt"
+
+var data = make([]int, 4)
+
+func main() {
+	loopData := func(handleData chan<- int) {
+		defer close(handleData)
+		for i := range data {
+			handleData <- data[i]
+		}
+	}
+
+	handleData := make(chan int)
+	go loopData(handleData)
+
+	for num := range handleData {
+		fmt.Println(num)
+	}
+}	
+#+END_SRC
+
+   in previous code snippet, we can see we only touch "data" slice in
+the loopData routine. we have the criteria "in any single timestamp,
+there is only one routine(process) control the information". so, this
+can never make rece condition happen! 
+   But if some day a newb come in then change the code, can you make
+sure the criteria again? so we need compiler to enforce the criteria!
+
+*** lexical confinement
+#+BEGIN_SRC
+package main
+
+import "fmt"
+
+func main() {
+	chanOwner := func() <-chan int {
+		results := make(chan int, 5)
+		go func() {
+			defer close(results)
+			for i := 0; i <= 5; i++ {
+				results <- i
+			}
+		}()
+		return results
+	}
+
+	consumer := func(results <-chan int) {
+		for result := range results {
+			fmt.Printf("Received: %d\n", result)
+		}
+		fmt.Println("Done receive!")
+	}
+
+	results := chanOwner()
+	consumer(results)
+}
+#+END_SRC
+
+  in the previous code, "results"" is under chanOwner's lexical
+scope. It confines the write aspect of this channel, so other
+go routine can not write to it!
+
+  channel is cocurrent safe by itself, now we inspect some no-concurrent
+safe data structure.
+
+#+BEGIN_SRC
+    printData := func(wg *sync.WaitGroup, data []byte) {
+		defer wg.Done()
+
+		var buff bytes.Buffer
+		for _, b := range data {
+			fmt.Fprintf(&buff, "%c", b)
+		}
+		fmt.Println(buff.String())
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	data := []byte("golang")
+	go printData(&wg, data[:3])
+	go printData(&wg, data[3:])
+
+	wg.Wait()
+#+END_SRC
+
+  in the previous code snippet, "data" is devided into two part,
+and each part belongs to a difference routine.
+  C(full) = A(part) + B(part);
+  whatever you do in a routine has no effect on another.[also, you
+can split data into k parts, and k routines deal with each part].
+
+  pros and cons of confinement:
+  pros:
+  [1]. no need sync primitives, so good perforcement.
+  [2]. the code is simpler to understand.
+
+  cons:
+  some times it is difficult to establish confinement.
+** for--select 
+*** send iteration variables to a channel
+#+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"io/ioutil"
+	"strings"
+	"time"
+)
+
+func main() {
+	done := make(chan int)
+
+	bySlice, err := ioutil.ReadFile("./main.go")
+	if err != nil {
+		panic(err)
+	}
+
+	strSlice := strings.Fields(string(bySlice))
+
+	strStream := strStreamGen(strSlice, done)
+
+	i := 0
+	for {
+		if i > 20 {
+			done <- 1
+			break
+		}
+
+		i++
+		fmt.Println(<-strStream)
+		time.Sleep(time.Second)
+	}
+}
+
+func strStreamGen(strSlice []string, done chan int) <-chan string {
+	strStream := make(chan string)
+	go func() {
+		for _, s := range strSlice {
+			select {
+			case <-done:
+				return
+			case strStream <- s:
+			}
+		}
+	}()
+
+	return strStream
+}
+#+END_SRC
+    in the privious code snippet, in strStreamGen function, we create a string channel,
+then create a new routine, loop over the string slice, put each element on the channel;
+this function finally return a only-read channel out; 
+
+    in main routine, we read on this channel; after get n value from the channel, we 
+break the channel; then main routine finish; the channel is closed!
+
+*** create goroutine infinitely waiting to be stopped
+#+BEGIN_SRC
+	done := make(chan int)
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+
+			fmt.Println("Juming and Dancing!")
+			time.Sleep(time.Second)
+		}
+	}()
+
+	time.Sleep(time.Second * time.Duration(10))
+	close(done)
+#+END_SRC
+** deal with goroutine leak
+*** how go routine terminate?
+**** it complete its work
+**** due to an unrecoverable error, it can not be contiune
+**** it has been told by others to stop working
+*** an example of go routine leak: 
+**** leak example:
+#+BEGIN_SRC
+    doWork := func(strings <-chan string) <-chan interface{} {
+		completed := make(chan interface{})
+		go func() {
+			defer fmt.Println("doWork exited.")
+			defer close(completed)
+			for s := range strings {
+				fmt.Println(s)
+			}
+		}()
+
+		return completed
+	}
+
+	doWork(nil)
+
+	time.Sleep(10 * time.Second)
+	fmt.Println("Done")
+#+END_SRC
+  the main routine sleep 10 seconds, then exit; we can't see
+"doWork exited." message print on the screen; the doWork routine is leaked!
+as an counter example, we change the code and solving the leaking problem:
+#+BEGIN_SRC
+   doWork := func(strings <-chan string) <-chan interface{} {
+		completed := make(chan interface{})
+		go func() {
+			defer fmt.Println("doWork exited.")
+			defer close(completed)
+			for s := range strings {
+				fmt.Println(s)
+			}
+		}()
+
+		return completed
+	}
+
+    genStrings := func() <-chan string {
+			strings := make(chan string)
+			go func() {
+				defer close(strings)
+				for i := 0; i < 10; i++ {
+					strings <- strconv.Itoa(i)
+				}
+			}()
+
+			return strings
+    }
+
+    strs := genStrings()
+	doWork(strs)
+
+	time.Sleep(10 * time.Second)
+	fmt.Println("Done")
+}
+#+END_SRC
+   This code soving the leaking problem by give doWork a
+real channel!
+*** use channel pass cancellation signal
+ #+BEGIN_SRC
+   doWork := func(done <-chan interface{}, strings <-chan string) <-chan interface{} {
+		completed := make(chan interface{})
+		go func() {
+			defer fmt.Println("doWork exited.")
+			defer close(completed)
+
+			for {
+				select {
+				case s := <-strings:
+					fmt.Println(s)
+				case <-done:
+					return
+				}
+			}
+		}()
+
+		return completed
+	}
+
+	done := make(chan interface{})
+	terminated := doWork(done, nil)
+
+	go func() {
+		time.Sleep(1 * time.Second)
+		fmt.Println("Canceling doWork goroutines...")
+		close(done)
+	}()
+
+	<-terminated
+	fmt.Println("Done")
+ #+END_SRC
+
+   in main routine we spawn a new routine, which close "done" channel after one second,
+then doWork routine's "for-select" get this message, the doWork routine exit and close 
+"completed" channel; main "<-terminated" wait on this closed channel and return. look!
+no routine leak and deadlock happen!
+
+CONVENTION: If a gorutine is responsible for creating a goroitine, it is also responsible
+for ensure it can be stop the goroutine.
+** or-channel
+   or-channel is used to combine one or more done channels into
+a single done channel, if any one of these channels is closed, then
+the composed one will be closed.
+   snippet code of or-channel:
+
+#+BEGIN_SRC
+    var or func(channels ...<-chan interface{}) <-chan interface{}
+
+	or = func(channels ...<-chan interface{}) <-chan interface{} {
+		switch len(channels) {
+		case 0:
+			return nil
+		case 1:
+			return channels[0]
+		}
+
+		orDone := make(chan interface{})
+		go func() {
+			defer close(orDone)
+
+			switch len(channels) {
+			case 2:
+				select {
+				case <-channels[0]:
+				case <-channels[1]:
+				}
+			default:
+				select {
+				case <-channels[0]:
+				case <-channels[1]:
+				case <-channels[2]:
+				case <-or(append(channels[3:], orDone)...):
+				}
+			}
+		}()
+
+		return orDone
+	}
+#+END_SRC
+
+or-channel use case:
+#+BEGIN_SRC
+	sig := func(after time.Duration) <-chan interface{} {
+		c := make(chan interface{})
+		go func() {
+			defer close(c)
+			time.Sleep(after)
+		}()
+
+		return c
+	}
+
+	start := time.Now()
+	<-or(
+		sig(2*time.Hour),
+		sig(5*time.Minute),
+		sig(1*time.Second),
+		sig(1*time.Hour),
+		sig(1*time.Minute),
+	)
+	fmt.Printf("done after %v\n", time.Since(start))
+#+END_SRC
+    after one second, the process will terminated!
