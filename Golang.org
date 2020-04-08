@@ -189,7 +189,7 @@ go tool pprof http://localhost:6060/debug/pprof/mutex
     list
     traces
 *** memory leak:
-**** how to find memory leak?
+**** how to know memory leak? [如何知道程序中有内存泄露呢？]
      1. write your own batch file monitor the memory usage of your program:
 #+BEGIN_SRC
 #!/bin/bash
@@ -271,8 +271,44 @@ func alloc2(outChan chan<- int) {
 
 		then, enter:
 		go tool pprof -base /Users/hjiang/pprof/pprof.goroutine.001.pb.gz /Users/hjiang/pprof/pprof.goroutine.002.pb.gz
-		get:
-	    
+		when we input "top" command:
+		[[file:./graph/leak_demo.png]]
+		use 001.pb.gz as the base, we can see 002.pb.gz's routine number has increased 67!
+
+**** how to locate where the leak happens?
+	 1. use Web browser
+		run the leak golang program, enter this address to the web browser:
+        http://localhost:6060/debug/pprof/goroutine?debug=1
+		result:
+		[[file:./graph/leak_demo_web1.png]]
+		
+		total 1589: the total number of goroutine
+        1584@xxxx : the total number of goroutine waiting in this place
+        main.go:52 : the problem program line
+
+		52: outChan <- 1 
+        in the 52th line of the program, we write a value into an unbuffered channel,
+        which will never be read out. So every goroutine write into this channel will
+        wait forever, this is a leaking point!
+
+		let's enter another line into the web browser:
+		http://localhost:6060/debug/pprof/goroutine?debug=2
+		result:
+		[[file:./graph/leak_demo_web2.png]]
+
+		[[file:./graph/leak_demo_web3.png]]
+		
+		you can also locate where is the leaking point!
+	 2. use command line
+		go tool pprof http://localhost:6060/debug/pprof/goroutine
+		reuslt:
+		[[file:./graph/leak_demo_web4.png]]
+		
+		a. enter top: find the routines number
+        b. enter traces: find the call stack
+        c. list: list code
+
+		[[file:./graph/leak_demo_web5.png]]
 * Golang concurrent pattern
 ** confinement [限定，不涉及同步原语]
    find some method or make a convetion to ensure that the information is only
