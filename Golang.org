@@ -309,6 +309,8 @@ func alloc2(outChan chan<- int) {
         c. list: list code
 
 		[[file:./graph/leak_demo_web5.png]]
+* Golang benchmark
+  https://golang.org/pkg/testing/
 * Golang concurrent pattern
 ** confinement [限定，不涉及同步原语]
    find some method or make a convetion to ensure that the information is only
@@ -792,3 +794,250 @@ func main() {
 a struct called Result, and return a channel which type is this kind of struct!
 now the main routine know all the result of his child routines! he can do 
 what he want to deal with this messages!
+** pipeline pattern
+*** function pipeline in golang
+**** batching processing
+#+BEGIN_SRC go
+package main
+
+import "fmt"
+
+func main() {
+	multiply := func(values []int, multiplier int) []int {
+		multipliedValues := make([]int, len(values))
+		for i, v := range values {
+			multipliedValues[i] = v * multiplier
+		}
+		return multipliedValues
+	}
+
+	add := func(values []int, adder int) []int {
+		addedValues := make([]int, len(values))
+		for i, v := range values {
+			addedValues[i] = v + adder
+		}
+		return addedValues
+	}
+
+	ints := []int{1, 2, 3, 4}
+	for _, v := range add(multiply(ints, 2), 1) {
+		fmt.Println(v)
+	}
+}
+#+END_SRC
+    the privious code simulate a batching process scene. every
+function eat a batch of data and pull out the same kind batch of
+data. It is something just like functional programming:
+#+BEGIN_SRC lisp
+(defun multi-lst (lst n)
+  (mapcar #'(lambda (x) (* x n))
+		  lst))
+
+(defun add-lst (lst n)
+  (mapcar #'(lambda (x) (+ x n))
+		  lst))
+
+(add-lst (multi-lst '(1 2 3 4) 2) 1)
+#+END_SRC
+    you can see how nature functional programming(here common lisp)
+implement this kind of batching pipeline process.
+**** stream processing
+#+BEGIN_SRC go
+    multiply := func(value, multiplier int) int {
+		return value * multiplier
+	}
+
+	add := func(value, adder int) int {
+		return value + adder
+	}
+
+	ints := []int{1, 2, 3, 4}
+	for _, v := range ints {
+		fmt.Println(add(multiply(v, 2), 1))
+	}
+#+END_SRC
+    the cons of the privious code is obvious: we have
+to instantialize a new pipe line in each iteration.
+*** use channel construct pipeline
+*** channel processing[manifest previous example]
+#+BEGIN_SRC go
+package main
+
+import "fmt"
+
+func main() {
+	generator := func(done <-chan interface{}, integers ...int) <-chan int {
+		intStream := make(chan int)
+		go func() {
+			defer close(intStream)
+			for _, i := range integers {
+				select {
+				case <-done:
+					return
+				case intStream <- i:
+				}
+			}
+		}()
+		return intStream
+	}
+
+	multiply := func(done <-chan interface{}, intStream <-chan int, multiplier int) <-chan int {
+		multipliedStream := make(chan int)
+		go func() {
+			defer close(multipliedStream)
+			for i := range intStream {
+				select {
+				case <-done:
+					return
+				case multipliedStream <- i * multiplier:
+				}
+			}
+		}()
+		return multipliedStream
+	}
+
+	add := func(done <-chan interface{}, intStream <-chan int, adder int) <-chan int {
+		addedStream := make(chan int)
+		go func() {
+			defer close(addedStream)
+			for i := range intStream {
+				select {
+				case <-done:
+					return
+				case addedStream <- i + adder:
+				}
+			}
+		}()
+		return addedStream
+	}
+
+	done := make(chan interface{})
+	defer close(done)
+
+	intStream := generator(done, 1, 2, 3, 4)
+	pipeline := multiply(done, add(done, multiply(done, intStream, 2), 1), 2)
+
+	for v := range pipeline {
+		fmt.Println(v)
+	}
+}
+#+END_SRC
+
+what the generator has done? it converts a discrete set of values into a stream
+of data on a channel.(This type of function is called generator)
+
+the biggest difference in channel pipeline and function pipe line: use the channel
+primitives, each stages of the pipeline is excuting cocurrently.
+*** some handy generator
+#+BEGIN_SRC
+package main
+
+import "fmt"
+
+func main() {
+	repeat := func(done <-chan interface{}, values ...interface{}) <-chan interface{} {
+		valueStream := make(chan interface{})
+		go func() {
+			defer close(valueStream)
+			for {
+				for _, v := range values {
+					select {
+					case <-done:
+						return
+					case valueStream <- v:
+					}
+				}
+			}
+		}()
+		return valueStream
+	}
+
+	take := func(done <-chan interface{}, valueStream <-chan interface{}, num int) <-chan interface{} {
+		takeStream := make(chan interface{})
+		go func() {
+			defer close(takeStream)
+			for i := 0; i < num; i++ {
+				select {
+				case <-done:
+					return
+				case takeStream <- <-valueStream:
+				}
+			}
+		}()
+		return takeStream
+	}
+
+	done := make(chan interface{})
+	defer close(done)
+
+	for num := range take(done, repeat(done, 10), 10) {
+		fmt.Printf("%v ", num)
+	}
+}
+#+END_SRC
+    in the privious code, "repeat" will repeat the value you pass to it infinitely until you tell it to stop;
+    "take" take the first num items off of its incoming stream if it is not closed so early!
+
+	let's see a new kind of repeat:
+#+BEGIN_SRC
+repeatFn := func(done <-chan interface{}, fn func() interface{}) <-chan interface{} {
+		valueStream := make(chan interface{})
+		go func() {
+			defer close(valueStream)
+			for {
+				select {
+				case <-done:
+					return
+				case valueStream <- fn():
+				}
+			}
+		}()
+		return valueStream
+	}
+#+END_SRC
+    "repeatFn" infinitely move the result of fn to the channel, we can use it like this:
+#+BEGIN_SRC
+	done := make(chan interface{})
+	defer close(done)
+
+	rand := func() interface{} {
+		return rand.Int()
+	}
+
+	for num := range take(done, repeatFn(done, rand), 10) {
+		fmt.Println(num)
+	}
+#+END_SRC
+    an infinite channel of random integers.
+**** interface{} and type assertion stage
+	 in the previous example, we let each stage eat interface{} and pull out
+ interface{}, how we want a stage deal with specific type?
+ #+BEGIN_SRC
+     toString := func(done <-chan interface{}, valueStream <-chan interface{}) <-chan string {
+		 stringStream := make(chan string)
+		 go func() {
+			 defer close(stringStream)
+			 for v := range valueStream {
+				 select {
+				 case <-done:
+					 return
+				 case stringStream <- v.(string):
+				 }
+			 }
+		 }()
+		 return stringStream
+	 }
+ #+END_SRC
+ #+BEGIN_SRC
+     var message string
+	 for token := range toString(done, take(done, repeat(done, "a", "b"), 10)) {
+		 message += token
+	 }
+
+	 fmt.Printf("message: %s...\n", message)
+ #+END_SRC
+** Fan-out, Fan-in
+the the privious pipeline pattern has a big problem, if one of the middle stage
+in the pipeline is computationally expensive, it will eclipse the performance 
+overhead.
+
