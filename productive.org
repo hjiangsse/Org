@@ -1,0 +1,20 @@
+* fast directory change:
+** when you working on a deep directory tree, use pushd,popd and dirs,
+   for fast command line navagation:
+
+   pushd /tmp/test1
+
+   pushd /tmp/test8
+   will push /tmp/test8 into the top of the stack and change cwd into /tmp/test8
+   
+   popd 
+   will pop /tmp/test8 from the top of the stack and change back to /tmp/test1
+
+   dird
+   show current stack
+** using "bd" utility
+   pwd
+   /tmp/dir1/dir2/dir3/dir4
+
+   cd `bd dir2`
+   will change to dir2 in this dir tree

@@ -663,3 +663,132 @@ or-channel use case:
 	fmt.Printf("done after %v\n", time.Since(start))
 #+END_SRC
     after one second, the process will terminated!
+
+	empty select:
+#+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+func main() {
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {}
+		fmt.Println("After select")
+	}()
+
+	wg.Wait()
+}
+#+END_SRC
+    when we running the code, get this CLI output:
+	[[file:./graph/empty_select.png]]
+	we know dead lock happen, but when we commented the empty select code line:
+    //select {}
+	we get this:
+	[[file:./graph/empty_select_cmt.png]]
+	so, the empty select cause the dead lock!!!
+** error handling in concurrent programming
+     what can you do when errors occur in goroutine? let's see a little
+   silly example:
+#+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func main() {
+	checkStatus := func(done <-chan interface{}, urls ...string) <-chan *http.Response {
+		responses := make(chan *http.Response)
+		go func() {
+			defer close(responses)
+			for _, url := range urls {
+				resp, err := http.Get(url)
+				if err != nil {
+					fmt.Println(err)  //:) only print the error in go routine, watch me!!!!
+					continue
+				}
+
+				select {
+				case <-done:
+					return
+				case responses <- resp:
+				}
+			}
+		}()
+		return responses
+	}
+
+	done := make(chan interface{})
+	defer close(done)
+
+	urls := []string{"https://www.baidu.com", "https://badhost"}
+	for response := range checkStatus(done, urls...) {
+		fmt.Printf("Response: %v\n", response.Status)
+	}
+}
+#+END_SRC
+    The previous code get sites responses, if success, move it into the result channel;
+if failed, just print the error message in the work goroutine and continue work!!
+    So the father routine(here is main routine) know nothing about the error(s) in his
+child routine, thought he has the full context of the logic, he can do nothing with these
+error(s).What a big tragedy!
+
+    smater_example:
+#+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func main() {
+	type Result struct {
+		Error    error
+		Response *http.Response
+	}
+
+	checkStatus := func(done <-chan interface{}, urls ...string) <-chan Result {
+		results := make(chan Result)
+		go func() {
+			defer close(responses)
+			for _, url := range urls {
+				var result Result
+				resp, err := http.Get(url)
+				result = Result{err, resp}
+
+				select {
+				case <-done:
+					return
+				case results <- result:
+				}
+			}
+		}()
+		return results
+	}
+
+	done := make(chan interface{})
+	defer close(done)
+
+	urls := []string{"https://www.baidu.com", "https://badhost"}
+	for result := range checkStatus(done, urls...) {
+		if result.Error != nil {
+			fmt.Printf("error: %v\n", result.Error)
+		}
+		fmt.Printf("Response: %v\n", results.Response.Status)
+	}
+}
+#+END_SRC
+
+    in previous smater example, we compose error result and normal result in
+a struct called Result, and return a channel which type is this kind of struct!
+now the main routine know all the result of his child routines! he can do 
+what he want to deal with this messages!
