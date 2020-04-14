@@ -32,3 +32,22 @@
    at doing that for a relatively modest fraction of the population. But a lot of our population ends up doing 
    work that is important but also routine and repetitive. That’s a challenge that faces our educational system.
    [为工业化时代服务的教育体系，似乎还不适合即将到来的创新时代]
+* yifhao:
+  [[./graph/jingyan.jpeg]]
+  线上性能问题的定位和优化是程序员进阶的必经之路
+
+在做内存问题相关的 profiling 时：
+  1. 若 gc 相关函数占用异常，可重点排查对象数量
+  2. 解决速度问题（CPU占用）时，关注对象数量（ --inuse/alloc_objects ）指标
+  3. 解决内存占用问题时，关注分配空间（ --inuse/alloc_space ）指标
+
+  inuse 代表当前时刻的内存情况，alloc 代表从从程序启动到当前时刻累计的内存情况，一般情况下看 inuse 指标更重要一些，但某些时候两张图对比着看也能有些意外发现。
+在日常 golang 编码时：
+  1. 参数类型要检查，尤其是 sql 参数要检查（低级错误）
+  2. 传递struct尽量使用指针，减少复制和内存占用消耗（尤其对于赋值给interface，会分配到堆上，额外增加gc消耗）
+  3. 尽量不使用循环引用，除非逻辑真的需要
+  4. 能在初始化中做的事就不要放到每次调用的时候做
+
+
+* Go语言 CPU 性能、内存分析调试方法大汇总 
+  https://mp.weixin.qq.com/s/-HojlxCZZIcWWwprQaVkzw

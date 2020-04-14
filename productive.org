@@ -18,3 +18,5 @@
 
    cd `bd dir2`
    will change to dir2 in this dir tree
+* git clone a specific branch from repo:
+  git clone --single-branch --branch <branchname> <remote-repo>
