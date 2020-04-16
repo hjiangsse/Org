@@ -47,7 +47,12 @@
   2. 传递struct尽量使用指针，减少复制和内存占用消耗（尤其对于赋值给interface，会分配到堆上，额外增加gc消耗）
   3. 尽量不使用循环引用，除非逻辑真的需要
   4. 能在初始化中做的事就不要放到每次调用的时候做
-
-
 * Go语言 CPU 性能、内存分析调试方法大汇总 
   https://mp.weixin.qq.com/s/-HojlxCZZIcWWwprQaVkzw
+* rust open source project:
+** A cross-platform GUI library for Rust, inspired by Elm 
+   https://github.com/hecrj/iced
+** Lightning Fast, Ultra Relevant, and Typo-Tolerant Search Engine
+   https://github.com/meilisearch/MeiliSearch
+** A cat(1) clone with wings. 
+   https://github.com/sharkdp/bat

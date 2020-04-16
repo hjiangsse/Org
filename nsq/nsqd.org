@@ -1,0 +1,205 @@
+* How nsqd deal with tcp connections:
+  [[file:~/Documents/Org/graph/test.jpg]]
+* How nsqd do message pump(push message to client), and how protocalV2 handle IoLoop:
+  [[file:~/Documents/Org/graph/nsqd_ioloop.jpg]]
+
+* An example: how nsqd deal with client PUB message:
+  [[file:~/Documents/Org/graph/nsqd_deal_pub_message.jpg]]
+  
+  we can see, when a client publish a message on a topic, the message will be push into
+  the memory message channel(go-chan) under this topic!
+
+* How nsqd deal with memory message channel overflow?
+  When len(t.memoryMsgChan) >= max_mem_chan_size, the overflow data will move to backend queue.
+  we can see, when a topic instance is initialized, it contains an backendQueue entry in it:
+
+  #+BEGIN_SRC  
+  type Topic struct {
+	// 64bit atomic vars need to be first for proper alignment on 32bit platforms
+	messageCount uint64
+	messageBytes uint64
+
+	sync.RWMutex
+
+	name              string
+	channelMap        map[string]*Channel
+	backend           BackendQueue            //This is the backend queue
+	memoryMsgChan     chan *Message
+	memoryMsgRing     *MsgRingBuf
+	msgOrderId        int64
+	startChan         chan int
+	exitChan          chan int
+	channelUpdateChan chan int
+	waitGroup         util.WaitGroupWrapper
+	exitFlag          int32
+	idFactory         *guidFactory
+
+	ephemeral      bool
+	deleteCallback func(*Topic)
+	deleter        sync.Once
+
+	paused    int32
+	pauseChan chan int
+
+	ctx *context
+	}
+    #+END_SRC
+
+  How nsqd initialize this backend queue?
+  
+  #+BEGIN_SRC
+  t.backend = diskqueue.New(
+			topicName,
+			t.memoryMsgRing,
+			ctx.nsqd.getOpts().DataPath,
+			ctx.nsqd.getOpts().MaxBytesPerFile,
+			int32(minValidMsgLength),
+			int32(ctx.nsqd.getOpts().MaxMsgSize)+minValidMsgLength,
+			ctx.nsqd.getOpts().SyncEvery,
+			ctx.nsqd.getOpts().SyncTimeout,
+			dqLogf,
+		)
+  #+END_SRC
+
+  this backend queue is an diskqueue entry, now we want find how this diskqueue work when nsqd running:
+  when a topic is initliazed, we find a line of code:
+  
+  t.waitGroup.Wrap(t.messagePump)
+
+  this will spwan a messagePump goroutine for this topic, now we check the document of this function:
+  // messagePump selects over the in-memory and backend queue and
+  // writes messages to every channel for this topic
+  now, we know this routine is use to pump messages to every channel(nsq-chan) on this topic!
+  now we eat this pump messages function piece by piece:
+  
+  #+BEGIN_SRC
+  for {
+		select {
+		case <-t.channelUpdateChan:
+			continue
+		case <-t.pauseChan:
+			continue
+		case <-t.exitChan:
+			goto exit
+		case <-t.startChan:
+		}
+		break
+   }
+   #+END_SRC
+
+   when t.startChan have an entry, we know this topic is successfully started! then the "for" will be
+   break out. This piece of code is just using for check if topic is start work!
+
+   #+BEGIN_SRC
+   t.RLock()
+	for _, c := range t.channelMap {
+		chans = append(chans, c)
+	}
+	t.RUnlock()
+	if !t.IsPaused() {
+		memoryMsgChan = t.memoryMsgChan
+	}
+   #+END_SRC
+   chans collect all channel(nsqd-chan) on this topic
+   memoryMsgChan is the memory message channel on this topic
+
+   #+BEGIN_SRC
+   msg.SetOrderId(t.msgOrderId)
+   t.msgOrderId++
+   t.memoryMsgRing.Push(msg)
+   #+END_SRC
+   push this message into the ringbuf on this topic
+
+   #+BEGIN_SRC
+   err = t.backend.Put(nil)
+		t.ctx.nsqd.SetHealth(err)
+		if err != nil {
+			t.ctx.nsqd.logf(LOG_ERROR,
+				"TOPIC(%s) ERROR: failed to write message to backend - %s",
+				t.name, err)
+		}
+   #+END_SRC
+   this put the message into the backend, if you want to know how nsqd write the
+   message to disk, go check diskqueue.go!
+
+* diskqueue's ioLoop:
+   When you initialize a diskqueue instance, it swpan a ioLoop Routine
+   now let's eat the ioloop piece by piece:
+   
+   #+BEGIN_SRC
+   func (d *diskQueue) ioLoop() {
+	var dataRead []byte
+	var err error
+	var count int64
+	var r chan []byte
+	buf := &bytes.Buffer{}
+
+	syncTicker := time.NewTicker(d.syncTimeout)
+
+	for {
+		// dont sync all the time :)
+		if count == d.syncEvery {
+			d.needSync = true
+		}
+
+		if d.needSync {
+			err = d.sync()
+			if err != nil {
+				d.logf(ERROR, "DISKQUEUE(%s) failed to sync - %s", d.name, err)
+			}
+			count = 0
+		}
+
+		r = nil
+
+		select {
+		// the Go channel spec dictates that nil channel operations (read or write)
+		// in a select are skipped, we set r to d.readChan only when there is data to read
+		case r <- dataRead:
+			count++
+			// moveForward sets needSync flag if a file is removed
+			d.moveForward()
+		case <-d.emptyChan:
+			d.emptyResponseChan <- d.deleteAllFiles()
+			count = 0
+		case dataWrite := <-d.writeChan:                                                      //when a message arrived in memory channel, messagePump 
+			dataWrite, err = d.msgDataPop.Pop4Disk(buf)                                       //routine will push this message to backend buffer, which
+			if err != nil {                                                                   //is a ringbuffer, and put a 'nil' into d.writeChan
+				d.logf(ERROR, "DISKQUEUE(%s) Pop4Disk - %s", d.name, err)                     //then "Pop4Disk" will pop out the message in the ringbuffer
+				continue                                                                      //WriteOne() write this message into file on the disk
+			}
+
+			if dataWrite != nil {
+				count++
+				err = d.writeOne(dataWrite)
+				if err != nil {
+					d.logf(ERROR, "DISKQUEUE(%s) writing at %d of %s - %s",
+						d.name, d.writePos, d.fileName(d.writeFileNum), err)
+				}
+
+				select {
+				case d.writeChan <- nil:
+				default:
+				}
+			}
+		case f := <-d.fastForwardChan:
+			d.fastForwardResponseChan <- d.fastForward(dataRead, f)
+		case <-syncTicker.C:
+			if count == 0 {
+				// avoid sync when there's no activity
+				continue
+			}
+			d.needSync = true
+		case <-d.exitChan:
+			goto exit
+		}
+	}
+
+	exit:
+	d.logf(INFO, "DISKQUEUE(%s): closing ... ioLoop", d.name)
+	syncTicker.Stop()
+	d.exitSyncChan <- 1
+	}
+    #+END_SRC
+* rebuild the data stream of nsqd
+[[file:../graph/new_nsq_stream.png]]
