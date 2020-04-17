@@ -56,3 +56,57 @@
    https://github.com/meilisearch/MeiliSearch
 ** A cat(1) clone with wings. 
    https://github.com/sharkdp/bat
+* NATS
+** The LOG 
+https://engineering.linkedin.com/distributed-systems/log-what-every-software-engineer-should-know-about-real-time-datas-unifying
+One of the most useful things I learned in all this was that many of the 
+things we were building had a very simple concept at their heart: *the log*.
+*** what is log 
+[[file:./graph/log1.png]]
+
+   the log entry number in each record can be seen as a timestamp, and this is the key point;
+this "timestamp" can decouple from any physical clock; a log is really just a kind of table
+or file where the records are sorted by time, they record what happend and when; which is 
+the heart problem of distribute system;
+**** logs in databases: 
+log is mainly use as a method for replicating data bettween databases;
+the use of logs as a mechanusim for data subscription seem to have arisen by chance, but 
+this very abstraction is ideal for supporting all kinds of messaging, data flow, and real-time
+data processing;
+**** logs in distribute system:
+State Machine Replication Principle:
+If two identical, deterministic processes begin in the same state and get the same inputs in the 
+same order, they will produce the same output and end in the same state. 
+
+active-active model: 
+keep a log of the incoming requests and each replica processes each request
+[[file:./graph/log3.png]]
+
+primary-backup model:
+[[file:./graph/log2.png]]
+The distributed log can be seen as the data structure which models the problem of consensus.
+
+
+and how to use logs for data integration, real time processing, and system building. 
+**** changelog 101:
+ The log is similar to the list of all credits and debits and bank processes; 
+a table is all the current account balances. [in DB system]
+
+tables support data at rest and logs capture change. this is a bit like source code control system(
+the sequece of pathes is just a log, the "checked out" branch is analogous to the table)
+*** data integration
+Data integration is making all the data an orgnization has available in all its services and systems;
+first make the data available!!!
+so the question is: how can we build reliable data flow throughout all the data in an orgnization?
+
+event data firehose and explosions of specialized data systems --> the combination of more data of more
+varieties and a desire to get this data into more systems leads to a huge data integration problem.
+
+[[file:./graph/log4.png]]
+
+the log also acts as a buffer, which makes data production asynchronous from data consumption.
+it can allow multiple subscribers that may consume at different rates.
+
+amazon Kinesis;
+
+build a scalable log:
