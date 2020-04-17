@@ -1614,3 +1614,137 @@ func locale(ctx context.Context) (string, error) {
 #+END_SRC
 *** use context as a data-bag for transporting request-scoped data through call-graph:
 * Concurrency at scale
+Make errors as the first citizens in your system.
+What errors are? :
+1. What happend? "disk full", "file not find", et el...
+2. When and Where it happened?
+   complete stack trace of the error, the context it's running in, and UTC time
+3. friendly user-facing message
+   let user know your error in an easy way.
+4. some indications to more comprehensive information
+
+two categories of errors:
+A. bugs;
+B. known edge cases;
+
+the following code snippt illustrate how to handle error and edge cases gracefully:
+#+BEGIN_SRC go
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"runtime/debug"
+)
+
+type MyError struct {
+	Inner      error
+	Message    string
+	StackTrace string
+	Misc       map[string]interface{}
+}
+
+func wrapError(err error, messagef string, msgArgs ...interface{}) MyError {
+	return MyError{
+		Inner:      err,
+		Message:    fmt.Sprintf(messagef, msgArgs...),
+		StackTrace: string(debug.Stack()),
+		Misc:       make(map[string]interface{}),
+	}
+}
+
+func (err MyError) Error() string {
+	return err.Message
+}
+
+//"lowlevel module"
+type LowLevelErr struct {
+	error
+}
+
+func isGloballyExec(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, LowLevelErr{(wrapError(err, err.Error()))}
+	}
+	return info.Mode().Perm()&0100 == 0100, nil
+}
+
+//"intermediate" module
+type IntermediateErr struct {
+	error
+}
+
+func runJob(id string) error {
+	const jobBinPath = "/bad/job/binary"
+	isExecutable, err := isGloballyExec(jobBinPath)
+	if err != nil {
+		//return err
+		return IntermediateErr{
+			wrapError(err, "can not run job %q: requisite binaries not available", id),
+		}
+	} else if isExecutable == false {
+		//return wrapError(nil, "job binary is not executable")
+		return wrapError(nil, "can not run job %q,  binary is not executable", id)
+	}
+
+	return exec.Command(jobBinPath, "--id="+id).Run()
+}
+
+//"top-level"
+func handleError(key int, err error, message string) {
+	log.SetPrefix(fmt.Sprintf("[logID: %v]: ", key))
+	log.Printf("%#v", err)
+	fmt.Printf("[%v] %v\n", key, message)
+}
+
+func main() {
+	log.SetOutput(os.Stdout)
+	log.SetFlags(log.Ltime | log.LUTC)
+
+	err := runJob("1")
+	if err != nil {
+		msg := "There was an unexpected issue; please report this as a bug."
+		if _, ok := err.(IntermediateErr); ok {
+			msg = err.Error()
+		}
+		handleError(1, err, msg)
+	}
+}
+#+END_SRC
+we can use third party libary to deal this kind of error problems:
+github.com/pkg/errors
+#+BEGIN_SRC go
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/pkg/errors"
+)
+
+func main() {
+	_, err := open_file("./bad.txt")
+	if err != nil {
+		fmt.Println("full error: ")
+		fmt.Println(err.Error())
+		fmt.Println("inner error: ")
+		innererr := errors.Cause(err)
+		if innererr != nil {
+			fmt.Println(innererr.Error())
+		}
+	}
+}
+
+func open_file(filepath string) (*os.File, error) {
+	f, err := os.Open(filepath)
+	if err != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("open %s file failed!", filepath))
+	}
+	return f, nil
+}
+#+END_SRC
+
