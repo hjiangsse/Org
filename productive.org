@@ -20,3 +20,8 @@
    will change to dir2 in this dir tree
 * git clone a specific branch from repo:
   git clone --single-branch --branch <branchname> <remote-repo>
+* branching in git:
+  git do not store data as a series of changesets or differences, but instead of a series of *snapshots*;
+  a nutshell about git branching:
+  https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell
+  

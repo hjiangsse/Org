@@ -1748,3 +1748,474 @@ func open_file(filepath string) (*os.File, error) {
 }
 #+END_SRC
 
+* NATS: messaging
+** sending and receiving messages across nats-server
+*** sending message to a subject in nats
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	if err := nc.Publish("updates", []byte("This is the first message.")); err != nil {
+		log.Fatal(err)
+	}
+#+END_SRC
+    first connect to nats, then Publish the message
+	if the sender want get a reply from the receiver:
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	// create a unique subject name for replies
+	uniqueReplyTo := nats.NewInbox()
+
+	// listen for a single response
+	sub, err := nc.SubscribeSync(uniqueReplyTo)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//send the request
+	if err := nc.PublishRequest("updates", uniqueReplyTo, []byte("This is a message")); err != nil {
+		log.Fatal(err)
+	}
+
+	//read the reply
+	msg, err := sub.NextMsg(time.Second)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//the response message
+	log.Printf("Reply: %s", msg.Data)
+#+END_SRC
+    the sender init a *Inbox* by nats.NewInbox(), this inbox is a unique subject for sender to use;
+sender use this subject to get reply messages from the receiver; when receiver get message from nats,
+it contain this subject, now it can send some reply back;
+*** receiving messages on a subject synchronically
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	// Subscribe synchronize
+	sub, err := nc.SubscribeSync("updates")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Wait for a message(give a dead line)
+	msg, err := sub.NextMsg(10 * time.Second)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Use the response
+	log.Printf("Reply: %s", msg.Data)
+#+END_SRC
+    when use NextMsg to retrive a message on a subscribe,
+if after 10 seconds there is no message, return an error.
+*** request-reply sematics
+what under the *Request* method is that, it publish a message with a unique reply subject;
+the *Request* will wait for the response before returning;
+   #+BEGIN_SRC go 
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	msg, err := nc.Request("updates", []byte("This is a beating heart"), time.Second)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//the response message
+	log.Printf("Reply: %s", msg.Data)
+   #+END_SRC
+*** scatter-gather sematics
+	send a message to receive and wait multiple messages from the inbox subject;
+the code of the sender:
+#+BEGIN_SRC go
+	nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	// create a unique subject name for replies
+	uniqueReplyTo := nats.NewInbox()
+
+	// listen for a single response
+	sub, err := nc.SubscribeSync(uniqueReplyTo)
+	if err != nil {
+		log.Fatal(err)
+	}
+	nc.Flush()
+
+	//send the request
+	if err := nc.PublishRequest("updates", uniqueReplyTo, []byte("from itanly, emergence message, need help!")); err != nil {
+		log.Fatal(err)
+	}
+
+	max := 500 * time.Millisecond
+	start := time.Now()
+	responses := make([]string, 0)
+	var minResponses = 100
+
+	for time.Now().Sub(start) < max {
+		msg, err := sub.NextMsg(time.Second)
+		if err != nil {
+			break
+		}
+
+		responses = append(responses, string(msg.Data))
+
+		if len(responses) >= minResponses {
+			break
+		}
+	}
+
+	fmt.Println(responses)
+#+END_SRC
+the code of the receiver:
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	// Subscribe synchronize
+	sub, err := nc.SubscribeSync("updates")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Wait for a message(give a dead line)
+	msg, err := sub.NextMsg(10 * time.Second)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Use the response
+	log.Printf("Reply: %s", msg.Data)
+
+	province := [4]string{"anhui", "shanghai", "jiangsu", "zhejiang"}
+	// Finally send a response back to the message sender
+	for i := 0; i < 150; i++ {
+		repmsg := fmt.Sprintf("|this is one ton of N95 masks from %v", province[i%4])
+
+		err = nc.Publish(msg.Reply, []byte(repmsg))
+		if err != nil {
+			log.Fatal(err)
+		}
+		time.Sleep(5 * time.Microsecond)
+	}
+#+END_SRC
+
+*** sending and receiving struct data
+send a struct in json encoding:
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	ec, err := nats.NewEncodedConn(nc, nats.JSON_ENCODER)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ec.Close()
+
+	//define the object
+	type helpmsg struct {
+		From    string
+		Message string
+		Need    uint32
+	}
+
+	//send the request
+	if err := ec.Publish("updates", &helpmsg{From: "italy", Message: "help", Need: 100}); err != nil {
+		log.Fatal(err)
+	}
+#+END_SRC
+
+recv a struct in json encoding:
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	ec, err := nats.NewEncodedConn(nc, nats.JSON_ENCODER)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ec.Close()
+
+	//define the object
+	type helpmsg struct {
+		From    string
+		Message string
+		Need    uint32
+	}
+	wg := sync.WaitGroup{}
+
+	wg.Add(1)
+	if _, err := ec.Subscribe("updates", func(h *helpmsg) {
+		log.Printf("\nFrom: %v\nMessage: %v\nNeed: %v\n", h.From, h.Message, h.Need)
+	}); err != nil {
+		log.Fatal(err)
+	}
+	wg.Wait()
+#+END_SRC
+
+** using tool to monitor nats server
+nats-top: a tool like top command in linux
+** bech nats
+*** publish benchmark
+"nats-bench -np 1 -n 1000000 -ms 1000 foo": 
+1 producer, 1000000 messages, size of each message is 1000 bytes,
+
+rusult:
+[[file:./graph/natsbench1.png]]
+
+*** pub/sub benchmark
+"nats-bench -np 1 -ns 1 -n 1000000 -ms 16 foo":
+1 producer, 1 consumer, 1000000 messages, size of each message is 16 bytes,
+
+result:
+[[file:./graph/natsbench2.png]]
+
+cpu and memory info of my test computer:
+ *-cpu
+          description: CPU
+          product: Intel(R) Core(TM) i7-4790 CPU @ 3.60GHz
+          vendor: Intel Corp.
+          physical id: 9
+          bus info: cpu@0
+          version: Intel(R) Core(TM) i7-4790 CPU @ 3.60GHz
+          slot: SOCKET 0
+          size: 3330MHz
+          capacity: 4GHz
+          width: 64 bits
+          clock: 100MHz
+
+*-memory
+          description: System Memory
+          physical id: d
+          slot: System board or motherboard
+          size: 16GiB
+
+*** 1/N benchmark
+"nats-bench -np 1 -ns 5 -n 1000000 -ms 16 foo": 1 publisher, 5 subcriber
+result:
+[[file:./graph/natsbench3.png]]
+
+"nats-bench -np 1 -ns 10 -n 1000000 -ms 16 foo": 1 publisher, 10 subcriber
+result:
+[[file:./graph/natsbench4.png]]
+
+"nats-bench -np 1 -ns 1 -n 1000000 -ms 4096 foo": 1 publisher, 1 subscriber, size 4K
+result:
+[[file:./graph/natsbench5.png]]
+
+*** sending latency benchmark
+sender:
+#+BEGIN_SRC go
+package main
+
+import (
+	"encoding/binary"
+	"log"
+	"os"
+	"strconv"
+	"time"
+
+	"github.com/nats-io/nats.go"
+)
+
+func main() {
+	if len(os.Args) <= 2 {
+		log.Fatal("argument not enough")
+		os.Exit(1)
+	}
+
+	msgnum, err := strconv.Atoi(os.Args[1])
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	bodysize, err := strconv.Atoi(os.Args[2])
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	if bodysize < 8 {
+		log.Fatal("msgbody size is not enough")
+		os.Exit(1)
+	}
+
+	nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	msgbody := make([]byte, bodysize)
+
+	for i := 0; i < msgnum; i++ {
+		binary.LittleEndian.PutUint64(msgbody, uint64(time.Now().UnixNano()))
+
+		//send the request
+		if err := nc.Publish("updates", msgbody); err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+
+		time.Sleep(time.Microsecond * 1)
+	}
+}
+#+END_SRC
+receiver:
+#+BEGIN_SRC go
+package main
+
+import (
+	"encoding/binary"
+	"log"
+	"os"
+	"strconv"
+	"time"
+
+	"github.com/nats-io/nats.go"
+	"gonum.org/v1/gonum/stat"
+)
+
+func main() {
+	if len(os.Args) <= 1 {
+		log.Fatal("argument not enough")
+		os.Exit(1)
+	}
+
+	msgnum, err := strconv.Atoi(os.Args[1])
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	sub, err := nc.SubscribeSync("updates")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sub.Unsubscribe()
+
+	lantencys := make([]float64, msgnum)
+	for i := 0; i < msgnum; i++ {
+		msg, err := sub.NextMsg(10 * time.Second)
+		if err != nil {
+			log.Fatal(err)
+		}
+		sendtime := binary.LittleEndian.Uint64(msg.Data[0:8])
+		lantency := uint64(time.Now().UnixNano()) - sendtime
+		lantencys[i] = float64(lantency)
+	}
+
+	mean := stat.Mean(lantencys, nil)
+	stddev := stat.StdDev(lantencys, nil)
+
+	log.Printf("mean latency of %v messages is %v\n", msgnum, mean)
+	log.Printf("stddev of latencies of %v messages is %v\n", msgnum, stddev)
+}
+#+END_SRC
+bench result(sync mode):
+./natsend 100000 40 [send 10w 40byte  messages]
+[[file:./graph/latenbench1.png]]
+
+./natsend 100000 100 [send 10w 100byte messages]
+[[file:./graph/latenbench2.png]]
+
+./natsend 100000 500 [send 10w 500byte messages]
+[[file:./graph/latenbench3.png]]
+
+./natsend 100000 1024 [send 10w 1K messages]
+[[file:./graph/latenbench4.png]]
+
+./natsend 100000 10240 [send 10w 10K messages]
+[[file:./graph/latenbench5.png]]
+
+./natsend 100000 20480 [send 10w 20K messages]
+[[file:./graph/latenbench7.png]]
+
+./natsend 100000 30720 [send 10w 30K messages]
+[[file:./graph/latenbench8.png]]
+** nats streaming...
+*** feature:
+  1. protobuffer enhanced protocol
+  2. offer configurable message persistence
+  3. at-least-once dilivery
+  4. publisher rate limiting
+  5. rate matching/limiting  per subcriber
+  6. historical message replay by subject
+     : The earliest message stored for this subject
+       [从subject开始处订阅]
+
+     : The most recently stored message for this subject, 
+       prior to the start of the current subscription. 
+       This is commonly thought of as "last value" or "initial value" caching.
+       [从最新的消息开始订阅]
+
+     : A specific date/time in nanoseconds
+       [从某一个特定的时刻开始订阅]
+
+     : An historical offset from the current server 
+       date/time, e.g. the last 30 seconds.
+       [从服务器的某个时间之前]
+
+     : A specific message sequence number
+       [特定序号]
+   7. durable subscribe: allow client restart
+*** nats streaming relation to nats server
+	[[file:./graph/nats_streaming1.png]]
+	the client of streaming server does not directly connect to streaming server,
+    but communicate with the streaming server through NATS server.
+
+	every valid client has its own unique client ID,
+
+*** channels:
+    Channels are subjects client send data and counsume from
+
+	message log: message log is just like a FIFO queue. it can be configered 
+    a limit, when this limit is reached, older messages will be removed for
+    the new ones;
+
+	a client creates a subscription on a given channel(no support for wildcard);
+    the streaming server maitain the state of this subscription. a subscription
+    can be created to start at any point in the message log;
+
+	type of subscription:
+    A. Regular: the state of these subscription is removed when they are unsubscribed or closed;
+    B. Durable: the client provide a durable name with the client ID when initialize the
+       connection, so when client closed and then restart it can resume message consumtion.
+    C. Queue Group: multiple comsumers can consume from the same channel, and each will
+       receive different messages;
+       [[file:./graph/nats_streaming2.png]]
+    D. 
