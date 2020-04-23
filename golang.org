@@ -2218,4 +2218,231 @@ bench result(sync mode):
     C. Queue Group: multiple comsumers can consume from the same channel, and each will
        receive different messages;
        [[file:./graph/nats_streaming2.png]]
-    D. 
+    D. Redilivery: the messages which not receive cousumer acks will be 
+       rediliveried;
+*** Store interface 
+** nats streaming dev
+*** using at-least-once delivery
+	this at-least-once delivery guarantee is the facet of messaging
+    with the hightest cost in terms of compute and storage;
+*** when to use NATS streaming:
+    1. consumer want to replay of data;
+    2. in the stream of message, when initialize a connenct it need
+       the last message in the stream, but producer may be offline;
+    3. data producers and consumers are highly decoupled
+    4. data lifespan in messages is longer that app;
+    5. app need to consume data at their own sapce;
+*** when to use core NATS:
+	1. Service patterns where there is a tightly coupled request/reply;
+	2. Only the last message received is important and new messages will
+       be received frequently enough for app to tolerate a lost message;
+	3. Low ttl message
+*** nats streaming overview:
+	Where NATS provides at most once quality of service, streaming adds 
+    *at least once*. Streaming is implemented as a *request-reply* service 
+    on top of NATS. Streaming messages are encoded as *protocol buffers*, 
+    the streaming clients use NATS to talk to the streaming server. The 
+    streaming server *organizes messages* in *channels* and stores them in 
+    files and databases. *ACKs* are used to ensure delivery in *both directions*.
+
+	
+	NATS streaming uses the concept of a channel to represent an 
+	ordered collection of messages. clients send to and receive from
+    channels instead of subjects;
+*** acks in streaming:
+	ack for each message can scale down the performance of the system,
+	nats streaming system allow subscriber to set a *max in flight* value;
+    [在途消息量]
+    max_in_flight = 10 => at a single moment, nats streaming system only
+                          allow 10 acks not received from client
+	
+	Setting max in flight to a number greater than 1 requires some thought 
+    and foresight to deal with redelivery scenarios.
+** nats streaming in action:
+*** durable subscription test:
+producer:
+    send messages to server per second:
+#+BEGIN_SRC go
+	sc, err := stan.Connect("test-cluster", "publish-client")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+	defer sc.Close()
+
+	stopsending := make(chan int)
+
+	go func() {
+		i := 1
+		//synchronously publish message to server
+		for {
+			select {
+			case <-stopsending:
+				return
+			default:
+			}
+
+			msg := fmt.Sprintf("this is the %dth ruster.", i)
+
+			err = sc.Publish("rust", []byte(msg))
+			if err != nil {
+				log.Fatal(err)
+				os.Exit(1)
+			}
+
+			time.Sleep(time.Millisecond * 1000)
+			fmt.Printf("send the %vth message.\n", i)
+			i++
+		}
+	}()
+
+	signalChan := make(chan os.Signal, 1)
+	cleanupDone := make(chan bool)
+	signal.Notify(signalChan, os.Interrupt)
+	go func() {
+		for range signalChan {
+			fmt.Println("\nReceived an interrupt and closing connection...\n\n")
+			sc.Close()
+			stopsending <- 1
+			cleanupDone <- true
+		}
+	}()
+	<-cleanupDone
+#+END_SRC
+subscriber:
+   first init a connection to server => subcriber using a durable name
+   receive 40 messages(every message give a manully ack back) => close
+   the connection, wait some time => reconnect and subcribe the same
+   channel again;
+#+BEGIN_SRC go
+	sc, err := stan.Connect("test-cluster", "subcriber-client")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	stopsub := make(chan int)
+	go func() {
+		_, err := sc.Subscribe("rust", func(m *stan.Msg) {
+			fmt.Printf("[First]Received a message: %s, seq: %v\n", string(m.Data), m.Sequence)
+			if m.Sequence >= 40 {
+				m.Ack()
+				sc.Close()
+				stopsub <- 1
+			}
+			m.Ack() //manully send ack back to server
+		}, stan.StartAtSequence(1), stan.SetManualAckMode(), stan.DurableName("my-durename"))
+
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+	}()
+
+	<-stopsub
+	fmt.Println("stop the first subcribe, and close the connection")
+
+	sc, err = stan.Connect("test-cluster", "subcriber-client")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	sc.Subscribe("rust", func(m *stan.Msg) {
+		fmt.Printf("[Second]Received a message: %s, seq: %v\n", string(m.Data), m.Sequence)
+	}, stan.DurableName("my-durename"))
+
+	signalChan := make(chan os.Signal, 1)
+	cleanupDone := make(chan bool)
+	signal.Notify(signalChan, os.Interrupt)
+	go func() {
+		for range signalChan {
+			fmt.Println("\nReceived an interrupt and closing connection...\n\n")
+			//sub.Unsubscribe()
+			sc.Close()
+			cleanupDone <- true
+		}
+	}()
+	<-cleanupDone
+#+END_SRC
+   noted that, when we resubcribe using the *DurableName* the server
+will send the message next to the last "acked" message;
+
+*** queue group subscriptions test:
+all subscriptions with the same queue name (regardless of the connection 
+they originate from) will form a queue group. Each message will be delivered 
+to only one subscriber per queue group, using queuing semantics;
+
+fist test a two member queue senario:
+producer: 
+    same as *durable subscription test*
+subscribers:
+quesub1:
+#+BEGIN_SRC go
+    sc, err := stan.Connect("test-cluster", "quesub1")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	//create a queue subscriber on "rust" for group "hacker"
+	qsub, err := sc.QueueSubscribe("rust", "hacker", func(msg *stan.Msg) {
+		fmt.Printf("[quesub1] recv message: %v, seq: %v\n", string(msg.Data), msg.Sequence)
+	}, stan.DeliverAllAvailable())
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+#+END_SRC
+quesub2:
+#+BEGIN_SRC go
+sc, err := stan.Connect("test-cluster", "quesub2")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	//create a queue subscriber on "rust" for group "hacker"
+	qsub, err := sc.QueueSubscribe("rust", "hacker", func(msg *stan.Msg) {
+		fmt.Printf("[quesub2] recv message: %v, seq: %v\n", string(msg.Data), msg.Sequence)
+	}, stan.DeliverAllAvailable())
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+#+END_SRC
+result:
+[[file:./graph/queuesub1.png]]
+
+[[file:./graph/queuesub2.png]]
+
+once all members leave the group, the group will be removed
+from the server;
+
+*** advanced useage:
+**** watching client connection status:
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://localhost:4223")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	sc, err := stan.Connect("test-cluster",
+		"quesub1",
+		stan.NatsConn(nc),
+		stan.Pings(10, 5),
+		stan.SetConnectionLostHandler(func(_ stan.Conn, reason error) {
+			log.Fatalf("Connection lost, reason: %v", reason)
+		}))
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+#+END_SRC
+
+we do not use the embeded NATS server, but start a independent NATS server;
+in the privous code, when NATS streaming server crash down, after 10 * 5 seconds,
+the client will come into the conn lost handling;
+
+*** message ordered sub/pub:

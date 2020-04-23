@@ -25,3 +25,6 @@
   a nutshell about git branching:
   https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell
   
+* block and unblock network traffic from a specific ip address:
+  block:    sudo iptables -A INPUT -s 172.22.194.141 -j DROP
+  unblock:  sudo iptables -D INPUT -s 172.22.194.141 -j DROP
