@@ -2446,4 +2446,23 @@ in the privous code, when NATS streaming server crash down, after 10 * 5 seconds
 the client will come into the conn lost handling;
 
 *** message ordered sub/pub:
-	
+* nats-server hacking	
+** code flow
+1. process command line flags or config files(priority: flags > config files)
+ |
+ |
+2. create a new server
+ |
+ |
+3. running the new server
+** how to create a new nats server?
+   1. set base line options:
+      if the flags and config file not supply the specific option, then use the base line;
+   2. gen public and private key
+   3. validate the options
+	  [默认max_payload_size=1M]
+   4. running the server:
+** deal with client readloop and writeloop
+*** protocol specification
+*** readloop
+*** writeloop
