@@ -2446,14 +2446,10 @@ in the privous code, when NATS streaming server crash down, after 10 * 5 seconds
 the client will come into the conn lost handling;
 
 *** message ordered sub/pub:
-* nats-server hacking	
+* nats-server hacking
 ** code flow
 1. process command line flags or config files(priority: flags > config files)
- |
- |
 2. create a new server
- |
- |
 3. running the new server
 ** how to create a new nats server?
    1. set base line options:
@@ -2464,5 +2460,389 @@ the client will come into the conn lost handling;
    4. running the server:
 ** deal with client readloop and writeloop
 *** protocol specification
-*** readloop
-*** writeloop
+*** the mechenics of the nats server data parser:
+	(how derek collison create this amazing parser?)
+	use a state change mechine and a text message protocol, he implement a zero-memory-allocate parser;
+	as an example, let's check out how the parser parse an *publish* request:
+
+	[[file:graph/nats_paser.png][how nats server parse a pub request]]
+    Fig 1: how nats server parse a publish message
+
+*** how push message is pumped to the client
+     start the nsts server
+#+BEGIN_SRC
+     $nats-server 
+#+END_SRC	 
+     assume one subcriber subcribe subject "foo.bar" using ID 90:
+#+BEGIN_SRC sh 
+     $telnet 127.0.0.1 4222
+     ......
+     sub foo.bar 90
+#+END_SRC	 
+	 after subcribe, one publisher publish a message "hello" to this topic:
+#+BEGIN_SRC sh 
+     $telnet 127.0.0.1 4222
+     ......
+     pub foo.bar 5
+     hello
+#+END_SRC	 
+     under this context, how the message "hello" is routine to the clinet?
+
+**** subscribe: 
+    [[file:./graph/nats_server_subcribe.png][how nats server deal with a subcribe]]
+    Fig.2 how nats-server deal with a subcribe
+     
+    1. parser status change when receive "sub foo.bar 90" message;
+    2. when parser finish his work, it will step into "processSub"
+       function; insert current subscribe into the sublist, which 
+       is a list struct for effective retrive/insertion;
+
+**** publish:
+    Fig.1 already show how the parser deal with a publish message, when
+    the message is parsed out, the server continue the following steps:
+    [[file:./graph/process_publish.png][process publish message]]
+    Fig.3 how server process a publish message
+    
+	1. "MSG_END_N" tell the parser finish message parsing, then 
+       the server will search the subcribe list[a high effecient
+       list] to find the subscibe(s):
+
+	2. if find subsciber(s), it will push a struct{}{} into c.out.sch,
+       which is a channel to notify the message pumping;
+
+    3. the writeLoop routine use a "for...select" waiting on this channel,
+       once check this channel is filled, it will send message to subscriber(s);
+
+	
+
+* high-aviliable messaging, RabbitMq hacking:
+** basic usage:
+*** send/receive pattern:
+**** send a message to a queue:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel, which encapsulates most APIs get things done
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	//queue has a name, just like "subject" in nats
+	//or "topic" in nsqd
+	q, err := ch.QueueDeclare(
+		"hello", //name
+		false,   //durale
+		false,   //delete when unused
+		false,   //exclusive
+		false,   //no wait
+		nil,     //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgBody := "Hello RabbitMq"
+	err = ch.Publish(
+		"",     //exchange
+		q.Name, //routine key
+		false,  //mandatory
+		false,  //immediate
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte(msgBody),
+		})
+	failOnError(err, "Failed to publish a message")
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+      in the previous code, we send a message to a queue, which name is "hello";
+**** receive a message from a queue:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	q, err := ch.QueueDeclare(
+		"hello", //name
+		false,   //durale
+		false,   //delete when unused
+		false,   //exclusive
+		false,   //no wait
+		nil,     //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		true,  //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+      in the previous code, we receive a message from a queue, which name is "hello";
+*** working queue pattern:
+	working queue is used to distribute tasks among multiple workers;
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"os"
+	"strings"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	q, err := ch.QueueDeclare(
+		"hello-tasks", //name
+		false,         //durale
+		false,         //delete when unused
+		false,         //exclusive
+		false,         //no wait
+		nil,           //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgBody := bodyFrom(os.Args)
+	err = ch.Publish(
+		"",     //exchange
+		q.Name, //routine key
+		false,  //mandatory
+		false,  //immediate
+		amqp.Publishing{
+			DeliveryMode: amqp.Persistent,
+			ContentType:  "text/plain",
+			Body:         []byte(msgBody),
+		})
+	failOnError(err, "Failed to publish a message")
+}
+
+func bodyFrom(args []string) string {
+	var s string
+	if (len(args) < 2) || os.Args[1] == "" {
+		s = "hello..."
+	} else {
+		s = strings.Join(args[1:], " ")
+	}
+	return s
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    in the code, we simulate a task by "dots" in the message, example: hello...
+    is a task need to excute 3 seconds;
+#+BEGIN_SRC bash
+    go run new_tasks.go hello....
+#+END_SRC
+    refactor the receiver code:
+#+BEGIN_SRC go
+package main
+
+import (
+	"bytes"
+	"log"
+	"time"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	q, err := ch.QueueDeclare(
+		"hello-tasks", //name
+		false,         //durale
+		false,         //delete when unused
+		false,         //exclusive
+		false,         //no wait
+		nil,           //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		true,  //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+			dotCnt := bytes.Count(d.Body, []byte("."))
+			log.Printf("This worker will sleep %d seconds.\n", dotCnt)
+			t := time.Duration(dotCnt)
+			time.Sleep(t * time.Second)
+			log.Println("Done")
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    now let's see how the messages in queue dispatched:
+    open three terminal, two for workers and one for the task-generator:
+	# shell 1
+    go run worker.go
+    # shell 2
+    go run worker.go
+    # shell 3
+    [[file:./graph/new_tasks.png]]
+    let's see what happen to the shell 1 and shell 2:
+    [[file:./graph/shell1.png]]
+    shell 1 receive message 1,3,5
+    [[file:./graph/shell2.png]]
+    shell 2 receive message 2,4
+    every consumer will get the same number of messages;
+		
+*** deal with message acknowledgment:
+    what will happen when one worker crash down? if 
+    not all the messages is been processed? RabbitMq can use
+    "acks" to make sure no message lost even if the workers
+    occasionally die.
+    
+    first let's see what happen when "acks" not used;
+    in the "working queue pattern" we send the 6th message:
+#+BEGIN_SRC bash
+go run new_tasks.go sixth Message..........
+#+END_SRC    
+    shell 2:
+	[[file:graph/shell2-kill.png][the 6th message shell 2]]
+    when enter "Ctrl+C" in shell 2, nothing happen in shell 1;
+    so, we can deduce that 6th message is losting forever;
+
+	we change code in "worker.go":
+#+BEGIN_SRC go
+msgs, err := ch.Consume(
+		q.Name,
+		"",
+		//true,  //auto ack
+		false, //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+			dotCnt := bytes.Count(d.Body, []byte("."))
+			log.Printf("This worker will sleep %d seconds.\n", dotCnt)
+			t := time.Duration(dotCnt)
+			time.Sleep(t * time.Second)
+			log.Println("Done")
+			d.Ack(false)
+		}
+	}()
+#+END_SRC
+    we set "autoack" in the consumer to false; means that when the worker
+finish task, it will not send a ack automaticlly; so this require us to manually
+send a "ack";
+    "d.Ack(false)"; let's see how this will affect message dilivery:
+    [[file:graph/ack_send.png][send five tasks to rebbitMq]]
+    the fifth message will be delivered to the shell 1 according the round robin method.
+    but we manually kill the session in shell 1. this is what we get:
+    [[file:graph/ack_shell1.png][manually kill shell 1 session when recv the 5th message]]
+    after the worker in shell 1 is killed, the 5th message will redeliver to worker in shell 2:
+    [[file:graph/ack_shell2.png][the 5th message redeliver to shell 2]]
+*** 

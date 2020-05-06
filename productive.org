@@ -28,3 +28,4 @@
 * block and unblock network traffic from a specific ip address:
   block:    sudo iptables -A INPUT -s 172.22.194.141 -j DROP
   unblock:  sudo iptables -D INPUT -s 172.22.194.141 -j DROP
+* use jekyll write your personal website
