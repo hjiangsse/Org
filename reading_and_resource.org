@@ -110,3 +110,8 @@ it can allow multiple subscribers that may consume at different rates.
 amazon Kinesis;
 
 build a scalable log:
+
+*** log and streaming processing
+** Out of the tar pit
+   declarative programming
+   

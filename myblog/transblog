@@ -1,0 +1,7 @@
+#!/bin/sh -f
+# this script transform an emacs org file to md file
+awk '
+	BEGIN { print "File Contents" }
+		   { print $0 }
+    END { print "--THE END--" }
+'

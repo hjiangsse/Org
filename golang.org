@@ -3826,6 +3826,39 @@ func failOnError(err error, msg string) {
 	queue mirroring?
 	it is not recommanded to run clusters that span WLAN
 *** metrics and statics:
+** docker rabbitmq cluster:
+*** create 3 container running rabbitmq instances
+	docker run -d --hostname rabbit1 --name rabbit1 -p 15672:15672 -p 5672:5672 -e RABBITMQ_ERLANG_COOKIE='rabbitcookie' rabbitmq
+    docker run -d --hostname rabbit2 --name rabbit2 -p 5673:5672 --link rabbit1:host1 -e RABBITMQ_ERLANG_COOKIE='rabbitcookie' rabbitmq
+    docker run -d --hostname rabbit3 --name rabbit3 -p 5674:5672 --link rabbit1:host1 --link rabbit2:host2 -e RABBITMQ_ERLANG_COOKIE='rabbitcookie' rabbitmq
+*** add rabbitmq node to cluster
+**** config rabbit1
+	 enter the first rabbitmq container rabbit1:
+	 : docker exec -it rabbit1 bash
+	
+	 check cluster information:
+     : rabbitmqctl cluster_status
+
+	 rabbitmqctl stop_app
+     rabbitmqctl reset
+     rabbitmqctl start_app
+     exit
+**** config rabbit2
+	 rabbitmqctl stop_app
+	 rabbitmqctl reset
+	 rabbitmqctl join_cluster rabbit@rabbit1   //if --ram, stand for RAM node
+	 rabbitmqctl start_app
+	 exit
+**** config rabbit3
+	 rabbitmqctl stop_app
+	 rabbitmqctl reset
+	 rabbitmqctl join_cluster --ram rabbit@rabbit1
+	 rabbitmqctl start_app
+	 exit
+*** enable management
+    docker exec -it rabbit1 bash
+	rabbitmq-plugins enable rabbitmq_management
+	
 ** rabbitmq cluster action:
 *** rabbitmqctrl clustering transcript:
 **** environment:
