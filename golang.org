@@ -3743,4 +3743,104 @@ func failOnError(err error, msg string) {
 	}
 }
 #+END_SRC
-** build rabbitmq cluster:
+** rabbitmq cluster prepare:
+*** ways of forming a rabbit cluster:	
+    :Declaratively by listing cluster nodes in config file
+    :Declaratively using DNS-based discovery
+    :Declaratively using AWS (EC2) instance discovery (via a plugin)
+    :Declaratively using Kubernetes discovery (via a plugin)
+    :Declaratively using Consul-based discovery (via a plugin)
+    :Declaratively using etcd-based discovery (via a plugin)
+    :Manually with rabbitmqctl
+    so many ways!!!!
+*** node identifiers(name):
+	rabbit@node1.messaging.svc.local
+    prifix: rabbit
+    hostname: node1.messaging.svc.local
+
+	if more than on nodes is running on a given host, they must use different prefixs:
+	rabbit1@hostname
+    rabbit2@hostname
+
+	when a node start up, it will check RABBITMQ_NODENAME env varible; if not setup,
+    just resoves its hostname and prepends "rabbit" to it.
+*** requirements to forming:
+	in order to forming a cluster, each node must can address any other node's domain name;
+	: DNS records
+    : Local host files(e.g. /etc/hosts)
+*** port access:
+	os or firewalls may prevent nodes and CLI tools communicating with each other. make sure
+	the following port avalible:
+	
+	
+    4369: epmd, a helper discovery daemon used by RabbitMQ nodes and CLI tools
+
+    5672, 5671: used by AMQP 0-9-1 and 1.0 clients without and with TLS
+
+    25672: used for inter-node and CLI tools communication (Erlang distribution server port) 
+           and is allocated from a dynamic range (limited to a single port by default, computed 
+           as AMQP port + 20000). Unless external connections on these ports are really necessary 
+           (e.g. the cluster uses federation or CLI tools are used on machines outside the subnet), 
+           these ports should not be publicly exposed. See networking guide for details.
+
+    35672-35682: used by CLI tools (Erlang distribution client ports) for communication with nodes 
+           and is allocated from a dynamic range (computed as server distribution port + 10000 
+           through server distribution port + 10010). See networking guide for details.
+
+    15672: HTTP API clients, management UI and rabbitmqadmin (only if the management plugin is enabled)
+
+    61613, 61614: STOMP clients without and with TLS (only if the STOMP plugin is enabled)
+
+    1883, 8883: (MQTT clients without and with TLS, if the MQTT plugin is enabled
+
+    15674: STOMP-over-WebSockets clients (only if the Web STOMP plugin is enabled)
+
+    15675: MQTT-over-WebSockets clients (only if the Web MQTT plugin is enabled)
+
+    15692: Prometheus metrics (only if the Prometheus plugin is enabled)
+*** nodes in cluster:
+	1. all data and status information is replicated across all nodes.
+       (message queues is located on one node, but they can be mirrored to other nodes too)
+	2. all nodes are equal peers(no leader or follower).
+    3. communication between node and CLI tool, or node between node use cookie
+       as the share secret, every node in a cluster must share the same cookie;
+      
+	   this erlang cookie generation should be done at cluster deployment stage, using
+       Docker, BOSH or similar;
+	4. odd numbers of cluster node are highly recommanded;
+	5. clustering and clients:
+	   a client can connect to any node and perform any operation. nodes will route
+       operations to the queue master node transparently to clients.
+
+	   [[file:graph/mq_cluster_op_routine.png][rabbitmq cluster operation routine]]
+*** observe the cluster:
+	connections, channels and queues will distribute across cluster nodes.
+
+	rabbitmq-diagnostics, 
+    rabbitmqctl, ...
+
+	cluster observation mechanism:
+	"cluster command" will first connect to one node, through this node to
+    collect all nodes information. Then retrive and combine their respective state;
+*** node failure handling:
+	queue mirroring?
+	it is not recommanded to run clusters that span WLAN
+*** metrics and statics:
+** rabbitmq cluster action:
+*** rabbitmqctrl clustering transcript:
+**** environment:
+    | mechine1                                                                                                   |
+    |------------------------------------------------------------------------------------------------------------+
+    | Linux hjiang-HP 5.3.0-18-generic #19-Ubuntu SMP Tue Oct 8 20:14:06 UTC 2019 x86_64 x86_64 x86_64 GNU/Linux |
+
+	| mechine2                                                                                                             |
+	|----------------------------------------------------------------------------------------------------------------------|
+	| Linux xiufuzhang 5.3.0-51-generic #44~18.04.2-Ubuntu SMP Thu Apr 23 14:27:18 UTC 2020 x86_64 x86_64 x86_64 GNU/Linux |
+
+	| mechine3                                                                                                 |
+	|----------------------------------------------------------------------------------------------------------|
+	| Linux nsxia 4.15.0-91-generic #92-Ubuntu SMP Fri Feb 28 11:09:48 UTC 2020 x86_64 x86_64 x86_64 GNU/Linux |
+
+	we start req3rew4tergearbgrasdsabbitmq-server on each node, each node is the only node in the cluster.
+
+

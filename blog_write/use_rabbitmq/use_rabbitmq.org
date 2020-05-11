@@ -1,0 +1,1229 @@
+** basic usage:
+*** send/receive pattern:
+**** send a message to a queue:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel, which encapsulates most APIs get things done
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	//queue has a name, just like "subject" in nats
+	//or "topic" in nsqd
+	q, err := ch.QueueDeclare(
+		"hello", //name
+		false,   //durale
+		false,   //delete when unused
+		false,   //exclusive
+		false,   //no wait
+		nil,     //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgBody := "Hello RabbitMq"
+	err = ch.Publish(
+		"",     //exchange
+		q.Name, //routine key
+		false,  //mandatory
+		false,  //immediate
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte(msgBody),
+		})
+	failOnError(err, "Failed to publish a message")
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+      in the previous code, we send a message to a queue, which name is "hello";
+**** receive a message from a queue:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	q, err := ch.QueueDeclare(
+		"hello", //name
+		false,   //durale
+		false,   //delete when unused
+		false,   //exclusive
+		false,   //no wait
+		nil,     //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		true,  //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+      in the previous code, we receive a message from a queue, which name is "hello";
+*** working queue pattern:
+	working queue is used to distribute tasks among multiple workers;
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"os"
+	"strings"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	q, err := ch.QueueDeclare(
+		"hello-tasks", //name
+		false,         //durale
+		false,         //delete when unused
+		false,         //exclusive
+		false,         //no wait
+		nil,           //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgBody := bodyFrom(os.Args)
+	err = ch.Publish(
+		"",     //exchange
+		q.Name, //routine key
+		false,  //mandatory
+		false,  //immediate
+		amqp.Publishing{
+			DeliveryMode: amqp.Persistent,
+			ContentType:  "text/plain",
+			Body:         []byte(msgBody),
+		})
+	failOnError(err, "Failed to publish a message")
+}
+
+func bodyFrom(args []string) string {
+	var s string
+	if (len(args) < 2) || os.Args[1] == "" {
+		s = "hello..."
+	} else {
+		s = strings.Join(args[1:], " ")
+	}
+	return s
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    in the code, we simulate a task by "dots" in the message, example: hello...
+    is a task need to excute 3 seconds;
+#+BEGIN_SRC bash
+    go run new_tasks.go hello....
+#+END_SRC
+    refactor the receiver code:
+#+BEGIN_SRC go
+package main
+
+import (
+	"bytes"
+	"log"
+	"time"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	q, err := ch.QueueDeclare(
+		"hello-tasks", //name
+		false,         //durale
+		false,         //delete when unused
+		false,         //exclusive
+		false,         //no wait
+		nil,           //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		true,  //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+			dotCnt := bytes.Count(d.Body, []byte("."))
+			log.Printf("This worker will sleep %d seconds.\n", dotCnt)
+			t := time.Duration(dotCnt)
+			time.Sleep(t * time.Second)
+			log.Println("Done")
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    now let's see how the messages in queue dispatched:
+    open three terminal, two for workers and one for the task-generator:
+	# shell 1
+    go run worker.go
+    # shell 2
+    go run worker.go
+    # shell 3
+    [[file:./graph/new_tasks.png]]
+    let's see what happen to the shell 1 and shell 2:
+    [[file:./graph/shell1.png]]
+    shell 1 receive message 1,3,5
+    [[file:./graph/shell2.png]]
+    shell 2 receive message 2,4
+    every consumer will get the same number of messages;
+		
+*** deal with message acknowledgment:
+    what will happen when one worker crash down? if 
+    not all the messages is been processed? RabbitMq can use
+    "acks" to make sure no message lost even if the workers
+    occasionally die.
+    
+    first let's see what happen when "acks" not used;
+    in the "working queue pattern" we send the 6th message:
+#+BEGIN_SRC bash
+go run new_tasks.go sixth Message..........
+#+END_SRC    
+    shell 2:
+	[[file:graph/shell2-kill.png][the 6th message shell 2]]
+    when enter "Ctrl+C" in shell 2, nothing happen in shell 1;
+    so, we can deduce that 6th message is losting forever;
+
+	we change code in "worker.go":
+#+BEGIN_SRC go
+msgs, err := ch.Consume(
+		q.Name,
+		"",
+		//true,  //auto ack
+		false, //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+			dotCnt := bytes.Count(d.Body, []byte("."))
+			log.Printf("This worker will sleep %d seconds.\n", dotCnt)
+			t := time.Duration(dotCnt)
+			time.Sleep(t * time.Second)
+			log.Println("Done")
+			d.Ack(false)
+		}
+	}()
+#+END_SRC
+    we set "autoack" in the consumer to false; means that when the worker
+finish task, it will not send a ack automaticlly; so this require us to manually
+send a "ack" -- "d.Ack(false)"; let's see how this will affect message dilivery:
+    [[file:graph/ack_send.png][send five tasks to rebbitMq]]
+
+    the fifth message will be delivered to the shell 1 according the round robin method.
+    then we manually kill the session in shell 1. this is what we get:
+
+    [[file:graph/ack_shell1.png][manually kill shell 1 session when recv the 5th message]]
+
+    after the worker in shell 1 is killed, the 5th message will redeliver to worker in shell 2:
+
+    [[file:graph/ack_shell2.png][the 5th message redeliver to shell 2]]
+*** RabbitMQ message durability:
+    when rabbitmq quite or crash, the queues and messages in these queues will losted!
+    we need to mark both the queue and messages as durable.
+    (the publishers and subscribers both declear them as durable)
+**** publisher and subcriber queue durability not match
+	 if the publisher declear the queue as durable:
+#+BEGIN_SRC go
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	q, err := ch.QueueDeclare(
+		"hello-tasks-dur", //name
+		true,  //durable
+		false, //delete when unused
+		false, //exclusive
+		false, //no wait
+		nil,   //arguments
+	)
+#+END_SRC
+    but the subcriber not declear the queue as durable:
+#+BEGIN_SRC go
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	q, err := ch.QueueDeclare(
+		"hello-tasks-dur", //name
+		false,             //durale
+		false,             //delete when unused
+		false,             //exclusive
+		false,             //no wait
+		nil,               //arguments
+	)
+#+END_SRC
+    when we run the worker: go run worker.go, we get an error:
+    [[file:graph/durable_no_match.png][queue durablity not match error]]
+
+	after change subscriber's queue declearation:
+#+BEGIN_SRC go
+	q, err := ch.QueueDeclare(
+		"hello-tasks-dur", //name
+		true,              //durale
+		false,             //delete when unused
+		false,             //exclusive
+		false,             //no wait
+		nil,               //arguments
+	)
+#+END_SRC
+    run the worker again:
+	[[file:graph/durable_match.png][the durability of publisher and subcriber matches]]
+**** publisher use a durable queue, but the messages it send not persistent
+	 in the publisher, when we send a message:
+#+BEGIN_SRC go
+err = ch.Publish(
+		"",     //exchange
+		q.Name, //routine key
+		false,  //mandatory
+		false,  //immediate
+		amqp.Publishing{
+			//DeliveryMode: amqp.Persistent,
+			ContentType: "text/plain",
+			Body:        []byte(msgBody),
+		})
+#+END_SRC
+    we publish two message to server:
+
+    [[file:graph/publish_two_nodure_messages.png][publish two no-durable messages to rabbitmq-server]]
+
+    then use rabbitmqctrl tool inspect the server:
+
+    [[file:graph/inspect_queues_1.png][rabbitmq queues inspection]]
+
+    but after that we restart rabbitmq-server:
+    *sudo serveice restart rabbitmq-server*
+    then inspect queues again:
+
+	[[file:graph/inspect_qqueue_2.png][inspect the queues when the sended messages are not durable]]
+
+	so we can get a conclusion: In order to get "message durability", we must provide 
+    the follow guarantee:
+    1. a durable queue;
+    2. the messages which in this queue is persistent;
+**** messages fair dispatch
+	 in the previous examples, rabbitmq-server dispatch messages using a round robin method;
+     it do not look the number of unacknowledged messages for a consumer. 
+#+BEGIN_SRC go
+     err = ch.Qos(1, //prefetch count
+                  0, //prefetch size
+                  false)
+     failOnError(err, "Failed to set Qos")
+#+END_SRC     
+     prefetch count set to 1, agree that is server not receive a ack from client, it will not
+     dispatch the next message to this client.
+*** publish/subcriber pattern
+**** declear an exchange
+	deliver a message to multiple consumers, the core idea in the messaging model in RabbitMQ:
+
+    [[file:graph/rabbit_exchange_model.png][the core messaging model in rabbitmq]]
+    
+    the producer send its message to an "Exchange", the exchange deliver this message to queues it
+    knows; so the producer have no knowledge about any queue.
+
+	now we can publish message to a named exchange:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"os"
+	"strings"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare(
+		"logs",   // nane
+		"fanout", // type
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	failOnError(err, "Failed to declear an exchange")
+
+	msgBody := bodyFrom(os.Args)
+	err = ch.Publish(
+		"logs", //exchange
+		"",     //routine key
+		false,  //mandatory
+		false,  //immediate
+		amqp.Publishing{
+			DeliveryMode: amqp.Persistent,
+			ContentType:  "text/plain",
+			Body:         []byte(msgBody),
+		})
+	failOnError(err, "Failed to publish a message")
+}
+
+func bodyFrom(args []string) string {
+	var s string
+	if (len(args) < 2) || os.Args[1] == "" {
+		s = "hello..."
+	} else {
+		s = strings.Join(args[1:], " ")
+	}
+	return s
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+
+#+END_SRC
+    when we run the code, then use rabbitmqctrl to inspect exchange messages:
+
+    [[file:graph/list-exchanges.png][list all the exchages after declear an exchange]]
+
+    we can see our exchange which name is "logs" and type is "fanout"; in the code
+    snippet, the publisher just declear a exchange and send message to this exchange;
+**** use temporary queues
+	subscriber need the follow step:
+    declear exchange(same as the publisher)
+            |
+			|
+            v
+    declear temp queue 
+            |
+			|
+            v
+    bind temp queue to the exchange 
+            |
+            |
+            v
+    waiting message on the queue:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare(
+		"logs",   // nane
+		"fanout", // type
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	failOnError(err, "Failed to declear an exchange")
+
+	q, err := ch.QueueDeclare(
+		"",    //empty name
+		false, //durale
+		false, //delete when unused
+		true,  //exclusive
+		false, //no wait
+		nil,   //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	//bind queue to a exchange
+	err = ch.QueueBind(
+		q.Name,
+		"",
+		"logs",
+		false,
+		nil,
+	)
+	failOnError(err, "Failed to bind the queue to exchange")
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		true,  //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+**** do pub/sub
+	 [[file:graph/subscribe_run.png][run a subscriber and redirect the messages to file]]
+
+     [[file:graph/subscribe_run_console.png][run a subscriber and redirect the messages to console]]	 
+	 
+	 then publish three message to the "logs" exchange on server:
+	 [[file:graph/publish_to_exchange.png][publish three messages to "logs" exchange]]
+
+     then we look at the two subscribers:
+	 [[file:graph/subscriber_1.png][subcribe 1 messages receive]]
+
+	 [[file:graph/subscriber_2.png][subscriber 2 recieve messages]]
+	 
+	 use rabbitmqctrl check the queue binding information:
+	 [[file:graph/queue_bindings.png][list queue bindings after two subscriber running]]
+     two rand-name queue is binding the "logs" exchange.
+*** routing(receiving messages selectively)
+	In some sences, one subscriber only want to receive a subset messages from 
+    the exchange.we can use the "routing_key" in queue binding, a subscriber 
+    only intrest the message with such "routing_key".
+	
+	We can do an experiment, publisher generate a ball in random color every second;
+    then send the ball to exchange; one subscriber only interest the red balls, so it
+    bind the queue use "red" as the "routing_key"; another subscriber interest green
+    and blue balls, so it bind the queue use "green" and "blue" as the "routing_key".
+	
+	publisher.go:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"math/rand"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	routineKeys := []string{"red", "green", "blue"}
+
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare(
+		"balls",  // name
+		"direct", // this is a direct exchange
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	failOnError(err, "Failed to declear an exchange")
+
+	msgBody := bodyFrom(os.Args)
+	for {
+		keyIdx := rand.Intn(3)
+
+		err = ch.Publish(
+			"balls",             //exchange
+			routineKeys[keyIdx], //routine key
+			false,               //mandatory
+			false,               //immediate
+			amqp.Publishing{
+				DeliveryMode: amqp.Persistent,
+				ContentType:  "text/plain",
+				Body:         []byte(msgBody + "[" + routineKeys[keyIdx] + "]"),
+			})
+		failOnError(err, "Failed to publish a message")
+
+		time.Sleep(time.Second)
+	}
+}
+
+func bodyFrom(args []string) string {
+	var s string
+	if (len(args) < 2) || os.Args[1] == "" {
+		s = "hello..."
+	} else {
+		s = strings.Join(args[1:], " ")
+	}
+	return s
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC	
+    publisher send balls to an exchange which name is "balls", each publish
+    use a random routine key;
+
+	subscribe.go:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"os"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare(
+		"balls",  // nane
+		"direct", // type
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	failOnError(err, "Failed to declear an exchange")
+
+	q, err := ch.QueueDeclare(
+		"",    //empty name
+		false, //durale
+		false, //delete when unused
+		true,  //exclusive
+		false, //no wait
+		nil,   //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	//bind queue to a exchange
+	for _, routinekey := range os.Args[1:] {
+		log.Printf("Binding queue %s to exchange %s with routing key %s",
+			q.Name, "balls", routinekey)
+
+		err = ch.QueueBind(
+			q.Name,
+			routinekey,
+			"balls",
+			false,
+			nil,
+		)
+		failOnError(err, "Failed to bind the queue to exchange")
+	}
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		true,  //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    subcriber receive messages selectively. the subcriber which only receive red ball:
+
+    [[file:graph/sub_red.png][subsciber which only recieve red ball]]
+
+	the subscriber which recieve green and blue ball:
+
+	[[file:graph/sub_blue_green.png][subcriber only recieve blue and green balls]]    
+	
+	this messages routine setup:
+
+	[[file:graph/routine_setup.png][message routine setup]]
+*** topics(receiving messages based on a pattern)
+	if we want some more flexibility when receive messages on server, we can
+    try a new kind of exchange: topic.
+
+	topic rule: the routing_key of topic must be a list of words, delimited by
+    dots, two important special cases for binding keys:
+    : * (star) can substitute for exactly one word.
+    : # (hash) can substitute for zero or more words.
+	
+	now we do an experiment, we create a topic exchange by publisher; one subcriber
+    bind a queue with the topic exchage using "*.orange.*" as routine-key; another
+    subscriber use two routine-keys: "*.*.rabbit" and "lazy.#", following is the setup:
+	
+	[[file:graph/topic_setup.png][animals topic setup]]
+    Fig.1 topic exchange routine setup
+
+	topic_pub.go
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"math/rand"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/streadway/amqp"
+)
+
+var characters = []string{"strive", "mediocrity", "lazy"}
+var colors = []string{"red", "green", "orange"}
+var animals = []string{"rabbit", "tiger", "duck"}
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare(
+		"animal-checking", // nane
+		"topic",           // type
+		true,              // durable
+		false,             // auto-deleted
+		false,             // internal
+		false,             // no-wait
+		nil,               // arguments
+	)
+	failOnError(err, "Failed to declear an exchange")
+
+	msgBody := bodyFrom(os.Args)
+	for {
+		rtkey := genRouteKey()
+
+		err = ch.Publish(
+			"animal-checking", //exchange
+			rtkey,             //routine key
+			false,             //mandatory
+			false,             //immediate
+			amqp.Publishing{
+				DeliveryMode: amqp.Persistent,
+				ContentType:  "text/plain",
+				Body:         []byte(msgBody + "[" + rtkey + "]"),
+			})
+		failOnError(err, "Failed to publish a message")
+
+		time.Sleep(time.Second)
+	}
+}
+
+func genRouteKey() string {
+	chaIdx, corIdx, aniIdx := rand.Intn(3), rand.Intn(3), rand.Intn(3)
+	return characters[chaIdx] + "." + colors[corIdx] + "." + animals[aniIdx]
+}
+
+func bodyFrom(args []string) string {
+	var s string
+	if (len(args) < 2) || os.Args[1] == "" {
+		s = "hello..."
+	} else {
+		s = strings.Join(args[1:], " ")
+	}
+	return s
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    in the code, we publish message use a random generate routine-key;
+
+	topic_sub.go
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"os"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare(
+		"animal-checking", // nane
+		"topic",           // type
+		true,              // durable
+		false,             // auto-deleted
+		false,             // internal
+		false,             // no-wait
+		nil,               // arguments
+	)
+	failOnError(err, "Failed to declear an exchange")
+
+	q, err := ch.QueueDeclare(
+		"",    //empty name
+		false, //durale
+		false, //delete when unused
+		true,  //exclusive
+		false, //no wait
+		nil,   //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	if len(os.Args) < 2 {
+		log.Printf("Usage: %s [binding_key]...", os.Args[0])
+		os.Exit(0)
+	}
+
+	//bind queue to a exchange
+	for _, routinekey := range os.Args[1:] {
+		log.Printf("Binding queue %s to exchange %s with routing key %s",
+			q.Name, "animal-checking", routinekey)
+
+		err = ch.QueueBind(
+			q.Name,
+			routinekey,
+			"balls",
+			false,
+			nil,
+		)
+		failOnError(err, "Failed to bind the queue to exchange")
+	}
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		true,  //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    in the code, we subcribe message using command line arguments as routine-key;
+
+    #shell 1
+	$go run topic_sub.go *.orange.*
+
+    [[file:graph/topic_sub_start_1.png][wanting messages which routine-key is *.orange.*]]
+
+	#shell 2
+    $go run topic_sub.go *.*.rabbit lazy.#
+
+	[[file:graph/topic_sub_start_2.png][want messages which routine-key is *.*.rabbit or lazy.#]]
+
+    #shell 3
+	$go run topic_pub.go some animals comming!
+    
+	shell 1 only receive *orange* animal:
+    [[file:graph/shell_1_orange.png][shell1 only receive orange animals]]
+
+	shell 2 recive all lazy animals and all kinds of rabbit, what a nightmare!!
+    [[file:graph/shell_1_lzay.png][shell2 lazy and rabbit]]
+*** RPC (request/reply pattern)
+	want run a function on a remote computer and wait for the result.
+	
+	a RPC server is waiting on a rpc_queue, RPC client publish request
+    on the rpc_queue; a RPC setup is like this:
+
+    [[file:graph/rpc_setup.png][rpc_setup]]
+
+	
+	rpc_server.go
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"strconv"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	q, err := ch.QueueDeclare(
+		"rpc_queue", //empty name
+		false,       //durale
+		false,       //delete when unused
+		false,       //exclusive
+		false,       //no wait
+		nil,         //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	err = ch.Qos(
+		1, //prefetch count
+		0, //prefetch size
+		false,
+	)
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		false, //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			//log.Printf("Recived a message: %s\n", d.Body)
+			n, err := strconv.Atoi(string(d.Body))
+			failOnError(err, "Failed to convert body to integer")
+
+			log.Printf(" [.] fib(%d)", n)
+			response := fib(n)
+
+			err = ch.Publish(
+				"",        //use the default exchange
+				d.ReplyTo, //routing key
+				false,
+				false,
+				amqp.Publishing{
+					ContentType:   "text/plain",
+					CorrelationId: d.CorrelationId,
+					Body:          []byte(strconv.Itoa(response)),
+				},
+			)
+			failOnError(err, "Failed to publish a message")
+
+			d.Ack(false)
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func fib(n int) int {
+	if n == 0 {
+		return 0
+	} else if n == 1 {
+		return 1
+	} else {
+		return fib(n-1) + fib(n-2)
+	}
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    
+    rpc_client.go
+#+BEGIN_SRC go
+    package main
+
+import (
+	"log"
+	"math/rand"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/streadway/amqp"
+)
+
+func randomString(l int) string {
+	bytes := make([]byte, l)
+	for i := 0; i < l; i++ {
+		bytes[i] = byte(randInt(65, 90))
+	}
+	return string(bytes)
+}
+
+func randInt(min int, max int) int {
+	return min + rand.Intn(max-min)
+}
+
+func fibonacciRPC(n int) (res int, err error) {
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	failOnError(err, "Failed to connect to RabbitMQ")
+	defer conn.Close()
+
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to open a channel")
+	defer ch.Close()
+
+	q, err := ch.QueueDeclare(
+		"",    // name
+		false, // durable
+		false, // delete when unused
+		true,  // exclusive
+		false, // noWait
+		nil,   // arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgs, err := ch.Consume(
+		q.Name, // queue
+		"",     // consumer
+		true,   // auto-ack
+		false,  // exclusive
+		false,  // no-local
+		false,  // no-wait
+		nil,    // args
+	)
+	failOnError(err, "Failed to register a consumer")
+
+	corrId := randomString(32)
+
+	err = ch.Publish(
+		"",          // exchange
+		"rpc_queue", // routing key
+		false,       // mandatory
+		false,       // immediate
+		amqp.Publishing{
+			ContentType:   "text/plain",
+			CorrelationId: corrId,
+			ReplyTo:       q.Name,
+			Body:          []byte(strconv.Itoa(n)),
+		})
+	failOnError(err, "Failed to publish a message")
+
+	for d := range msgs {
+		if corrId == d.CorrelationId {
+			res, err = strconv.Atoi(string(d.Body))
+			failOnError(err, "Failed to convert body to integer")
+			break
+		}
+	}
+
+	return
+}
+
+func main() {
+	rand.Seed(time.Now().UTC().UnixNano())
+
+	n := bodyFrom(os.Args)
+
+	log.Printf(" [x] Requesting fib(%d)", n)
+	res, err := fibonacciRPC(n)
+	failOnError(err, "Failed to handle RPC request")
+
+	log.Printf(" [.] Got %d", res)
+}
+
+func bodyFrom(args []string) int {
+	var s string
+	if (len(args) < 2) || os.Args[1] == "" {
+		s = "30"
+	} else {
+		s = strings.Join(args[1:], " ")
+	}
+	n, err := strconv.Atoi(s)
+	failOnError(err, "Failed to convert arg to integer")
+	return n
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
