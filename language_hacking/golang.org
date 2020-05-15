@@ -1,0 +1,3929 @@
+* golang in action
+** golang tools
+*** build windows exe file on linux platform
+	GOOS=windows GOARCH=amd64  go build ~/go/src/xchg.ai/sse/smalltest
+    上面这个指令在Linux平台上可以编译出windows可执行文件
+*** clean build out files
+    go clean
+*** build and running the excute file
+    go run main.go xxx
+    xxx 是参数
+*** go env
+    察看GO开发环境，可以为我们排查错误提供帮助
+*** go install
+    如果编译生成的是可执行文件，安装在$GOPATH/bin目录下
+    如果编译生成的是可引用的库，安装在$GOPATH/pkg目录下
+*** go fmt
+*** go vet
+*** go test
+** golang doc
+*** 终端查看文档：
+	在当前目录下执行go doc, 输出当前目录下的文档信息；
+    go doc packageName 列出这个包的信息，包括文档，方法，结构体等
+    go doc json
+    go doc json.Decoder
+	go doc json.Decoder.Decode
+    可以一步步缩小查找范围
+*** 在线浏览文档：
+*** 生成自己的文档（添加例子）：
+* golang test and benchmark
+   func Test_XXXX(b *testing.B) {
+	  //this is the testing code
+   }
+
+   //gen profile
+   go test -bench=. -benchmem -memprofile memprofile.out -cpuprofile profile.out
+
+   //check profile
+   go tool pprof profile.out
+* golang web development
+** Http Server
+*** 服务器的主要职责：	
+    Process dynamic requests: [处理动态请求] 
+	Process incoming requests from users who browse the website, log into their accounts or post images.
+    Serve static assets: [静态文件服务]
+	Serve JavaScript, CSS and images to browsers to create a dynamic experience for the user.
+    Accept connections: [网络连接管理]
+	The HTTP Server must listen on a specific port to be able to accept connections from the internet.
+
+** 路由器
+   [[file:~/PlayGround/Golang/PlayWeb/hello_router.go][play with the gorilla router now!]]
+
+** Connet with MySQL database
+   Install a mysql server on a linux mechine
+      
+* golang pprof
+** profiling a golang program
+  #+BEGIN_SRC
+package main
+
+import (
+	"bufio"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"runtime"
+	"runtime/pprof"
+	"strconv"
+	"sync"
+)
+
+const (
+	DIRPATH    string = "./"
+	FILENAME   string = "file"
+	FILESUFFIX string = ".txt"
+)
+
+var fileIndexes []int = []int{1, 2, 3, 4}
+
+var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
+var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
+
+func main() {
+	var wg sync.WaitGroup
+
+	flag.Parse()
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		defer f.Close() // error handling omitted for example
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
+	for _, i := range fileIndexes {
+		filePath := DIRPATH + FILENAME + strconv.Itoa(i) + FILESUFFIX
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			file, err := os.Open(filePath)
+			if err != nil {
+				panic(err)
+			}
+
+			defer file.Close()
+
+			scanner := bufio.NewScanner(file)
+			for scanner.Scan() {
+				fmt.Println(scanner.Text())
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	if *memprofile != "" {
+		f, err := os.Create(*memprofile)
+		if err != nil {
+			log.Fatal("could not create memory profile: ", err)
+		}
+		defer f.Close() // error handling omitted for example
+		runtime.GC()    // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			log.Fatal("could not write memory profile: ", err)
+		}
+	}
+}
+  #+END_SRC
+  the privious code show how to populate pprof in a golang program  
+
+  after you build the project, the following command will generate the profile:
+  =test_profile -cpuprofile test_profile.prof=
+
+  then you can use the profile to invesgate the cpu usage sketch of the program:
+  =go tool pprof test_pprof test_pprof.prof=
+
+  when you in the pprof mode, you can type:
+  =web=
+  generate a graph of the program.
+  
+** using profile analyse routines stack
+*** using net/http/pprof
+#+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"net/http"
+	_ "net/http/pprof"
+)
+
+func main() {
+	ip := "0.0.0.0:6060"
+	if err := http.ListenAndServe(ip, nil); err != nil {
+		fmt.Println("start pprof failed on %s\n", ip)
+	}
+}
+#+END_SRC
+
+open browser, and input http://localhost:6060/debug/pprof/
+you will get a page.
+
+use command line get profile message:
+# 下载cpu profile，默认从当前开始收集30s的cpu使用情况，需要等待30s
+go tool pprof http://localhost:6060/debug/pprof/profile                 # 30-second CPU profile
+go tool pprof http://localhost:6060/debug/pprof/profile?seconds=120     # wait 120s
+
+# 下载heap profile
+go tool pprof http://localhost:6060/debug/pprof/heap      # heap profile
+
+# 下载goroutine profile
+go tool pprof http://localhost:6060/debug/pprof/goroutine # goroutine profile
+
+# 下载block profile
+go tool pprof http://localhost:6060/debug/pprof/block     # goroutine blocking profile
+
+# 下载mutex profile
+go tool pprof http://localhost:6060/debug/pprof/mutex
+
+*** using pprof get heap message
+	go tool pprof http://localhost:6060/debug/pprof/heap
+    top
+    list
+    traces
+*** memory leak:
+**** how to know memory leak? [如何知道程序中有内存泄露呢？]
+     1. write your own batch file monitor the memory usage of your program:
+#+BEGIN_SRC
+#!/bin/bash
+prog_name="demo1"
+prog_mem=$(pidstat -r -u -h -C $prog_name |awk 'NR==4{print $12}')
+time=$(date "+%Y-%m-%d %H:%M:%S")
+echo $time"\tmemory(Byte)\t"$prog_mem >>~/record/prog_mem.log
+#+END_SRC
+        or you can use top | grep "your_programe_name" check memory useage
+     2. use pprof
+        a leak deamon:
+#+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"net/http"
+	_ "net/http/pprof"
+	"os"
+	"time"
+)
+
+func main() {
+	go func() {
+		ip := "0.0.0.0:6060"
+		if err := http.ListenAndServe(ip, nil); err != nil {
+			fmt.Printf("start pprof failed on %s\n", ip)
+			os.Exit(1)
+		}
+	}()
+
+	outChan := make(chan int)
+
+	//dead code, never read from the channel
+	go func() {
+		if false {
+			<-outChan
+		}
+		select {}
+	}()
+
+	//spwan 10 routines per second,
+	tick := time.Tick(time.Second / 10)
+	i := 0
+	for range tick {
+		i++
+		fmt.Println(i)
+		alloc1(outChan)
+	}
+}
+
+func alloc1(outChan chan<- int) {
+	go alloc2(outChan)
+}
+
+func alloc2(outChan chan<- int) {
+	go func() {
+		defer fmt.Println("alloc-fm exit")
+		//alloc some memory
+		buf := make([]byte, 1024*1024*10)
+		_ = len(buf)
+		fmt.Println("alloc done")
+
+		outChan <- 1
+	}()
+}
+#+END_SRC
+        in the privious code, main routine create 10 routine every second,
+        beacause each routine is wait on "outChan<-1", so the allocated memory
+        can not be freed.
+
+		we use "go tool pprof" get the infomation of goroutines:
+
+		go tool pprof http://localhost:6060/debug/pprof/goroutine
+		
+		do privious command two time, get:
+		/Users/hjiang/pprof/pprof.goroutine.001.pb.gz
+        /Users/hjiang/pprof/pprof.goroutine.002.pb.gz
+
+		then, enter:
+		go tool pprof -base /Users/hjiang/pprof/pprof.goroutine.001.pb.gz /Users/hjiang/pprof/pprof.goroutine.002.pb.gz
+		when we input "top" command:
+		[[file:./graph/leak_demo.png]]
+		use 001.pb.gz as the base, we can see 002.pb.gz's routine number has increased 67!
+
+**** how to locate where the leak happens?
+	 1. use Web browser
+		run the leak golang program, enter this address to the web browser:
+        http://localhost:6060/debug/pprof/goroutine?debug=1
+		result:
+		[[file:./graph/leak_demo_web1.png]]
+		
+		total 1589: the total number of goroutine
+        1584@xxxx : the total number of goroutine waiting in this place
+        main.go:52 : the problem program line
+
+		52: outChan <- 1 
+        in the 52th line of the program, we write a value into an unbuffered channel,
+        which will never be read out. So every goroutine write into this channel will
+        wait forever, this is a leaking point!
+
+		let's enter another line into the web browser:
+		http://localhost:6060/debug/pprof/goroutine?debug=2
+		result:
+		[[file:./graph/leak_demo_web2.png]]
+
+		[[file:./graph/leak_demo_web3.png]]
+		
+		you can also locate where is the leaking point!
+	 2. use command line
+		go tool pprof http://localhost:6060/debug/pprof/goroutine
+		reuslt:
+		[[file:./graph/leak_demo_web4.png]]
+		
+		a. enter top: find the routines number
+        b. enter traces: find the call stack
+        c. list: list code
+
+		[[file:./graph/leak_demo_web5.png]]
+** pprof and gabage collection
+*** when program create so many objects in a limited short time, look at the cpu and memory usage
+#+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+type Student struct {
+	Name   string
+	Number uint32
+}
+
+func main() {
+	for {
+		createCrowds()
+		time.Sleep(time.Millisecond * 10)
+	}
+}
+
+func createCrowds() {
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			for i := 0; i < 10000000; i++ {
+				_ = Student{
+					Name:   "I do not need your education!",
+					Number: 1,
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	fmt.Println("create crowds finish!")
+}
+#+END_SRC
+  The privious code generate 100 million "Student" object every 0.1 second;
+let's watch the cpu and memory of this mechine:
+  cpu:
+  [[file:./graph/cpu.png]]
+  mem:
+  [[file:./graph/mem.png]]
+  we can see an dramatic increase in cpu usage, but the memory usage is almost
+not changed. because the gc is so busy, cost so many cpu usage. 
+#+BEGIN_SRC
+time.Sleep(time.Millisecond * 1)
+#+END_SRC
+  we intentional change the create speed! create the same number of objects in 0.01 second!
+  cpu:
+  [[file:./graph/cpu_0.01.png]]
+  mem:
+  [[file:./graph/mem_0.01.png]]
+we can see cpu usage almost increase 25%; the we use pprof inspect program,
+locate the key problem.
+#+BEGIN_SRC
+_ "net/http/pprof"
+
+go func() {
+		http.ListenAndServe("0.0.0.0:8005", nil)
+	}()
+#+END_SRC
+go tool pprof -http=:1234 http://localhost:8005/debug/pprof/profile?seconds=30
+30 seconds later we get a web page, click VIEW, then Flame Graph,:
+[[file:./graph/flame_graph.png]]
+we can see createCrowds function use the most cpu resource, then we use pprof watch heap infomation:
+go tool pprof -http=:1234 http://localhost:8005/debug/pprof/heap
+*** golang gc	
+* golang benchmark
+  https://golang.org/pkg/testing/
+* golang concurrent pattern
+** confinement [限定，不涉及同步原语]
+   find some method or make a convetion to ensure that the information is only
+   avaliable from one concurrent process(routine).
+*** Ad hoc confinement
+#+BEGIN_SRC
+package main
+
+import "fmt"
+
+var data = make([]int, 4)
+
+func main() {
+	loopData := func(handleData chan<- int) {
+		defer close(handleData)
+		for i := range data {
+			handleData <- data[i]
+		}
+	}
+
+	handleData := make(chan int)
+	go loopData(handleData)
+
+	for num := range handleData {
+		fmt.Println(num)
+	}
+}	
+#+END_SRC
+
+   in previous code snippet, we can see we only touch "data" slice in
+the loopData routine. we have the criteria "in any single timestamp,
+there is only one routine(process) control the information". so, this
+can never make rece condition happen! 
+   But if some day a newb come in then change the code, can you make
+sure the criteria again? so we need compiler to enforce the criteria!
+
+*** lexical confinement
+#+BEGIN_SRC
+package main
+
+import "fmt"
+
+func main() {
+	chanOwner := func() <-chan int {
+		results := make(chan int, 5)
+		go func() {
+			defer close(results)
+			for i := 0; i <= 5; i++ {
+				results <- i
+			}
+		}()
+		return results
+	}
+
+	consumer := func(results <-chan int) {
+		for result := range results {
+			fmt.Printf("Received: %d\n", result)
+		}
+		fmt.Println("Done receive!")
+	}
+
+	results := chanOwner()
+	consumer(results)
+}
+#+END_SRC
+
+  in the previous code, "results"" is under chanOwner's lexical
+scope. It confines the write aspect of this channel, so other
+go routine can not write to it!
+
+  channel is cocurrent safe by itself, now we inspect some no-concurrent
+safe data structure.
+
+#+BEGIN_SRC
+    printData := func(wg *sync.WaitGroup, data []byte) {
+		defer wg.Done()
+
+		var buff bytes.Buffer
+		for _, b := range data {
+			fmt.Fprintf(&buff, "%c", b)
+		}
+		fmt.Println(buff.String())
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	data := []byte("golang")
+	go printData(&wg, data[:3])
+	go printData(&wg, data[3:])
+
+	wg.Wait()
+#+END_SRC
+
+  in the previous code snippet, "data" is devided into two part,
+and each part belongs to a difference routine.
+  C(full) = A(part) + B(part);
+  whatever you do in a routine has no effect on another.[also, you
+can split data into k parts, and k routines deal with each part].
+
+  pros and cons of confinement:
+  pros:
+  [1]. no need sync primitives, so good perforcement.
+  [2]. the code is simpler to understand.
+
+  cons:
+  some times it is difficult to establish confinement.
+** for--select 
+*** send iteration variables to a channel
+#+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"io/ioutil"
+	"strings"
+	"time"
+)
+
+func main() {
+	done := make(chan int)
+
+	bySlice, err := ioutil.ReadFile("./main.go")
+	if err != nil {
+		panic(err)
+	}
+
+	strSlice := strings.Fields(string(bySlice))
+
+	strStream := strStreamGen(strSlice, done)
+
+	i := 0
+	for {
+		if i > 20 {
+			done <- 1
+			break
+		}
+
+		i++
+		fmt.Println(<-strStream)
+		time.Sleep(time.Second)
+	}
+}
+
+func strStreamGen(strSlice []string, done chan int) <-chan string {
+	strStream := make(chan string)
+	go func() {
+		for _, s := range strSlice {
+			select {
+			case <-done:
+				return
+			case strStream <- s:
+			}
+		}
+	}()
+
+	return strStream
+}
+#+END_SRC
+    in the privious code snippet, in strStreamGen function, we create a string channel,
+then create a new routine, loop over the string slice, put each element on the channel;
+this function finally return a only-read channel out; 
+
+    in main routine, we read on this channel; after get n value from the channel, we 
+break the channel; then main routine finish; the channel is closed!
+
+*** create goroutine infinitely waiting to be stopped
+#+BEGIN_SRC
+	done := make(chan int)
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+
+			fmt.Println("Juming and Dancing!")
+			time.Sleep(time.Second)
+		}
+	}()
+
+	time.Sleep(time.Second * time.Duration(10))
+	close(done)
+#+END_SRC
+** deal with goroutine leak
+*** how go routine terminate?
+**** it complete its work
+**** due to an unrecoverable error, it can not be contiune
+**** it has been told by others to stop working
+*** an example of go routine leak: 
+**** leak example:
+#+BEGIN_SRC
+    doWork := func(strings <-chan string) <-chan interface{} {
+		completed := make(chan interface{})
+		go func() {
+			defer fmt.Println("doWork exited.")
+			defer close(completed)
+			for s := range strings {
+				fmt.Println(s)
+			}
+		}()
+
+		return completed
+	}
+
+	doWork(nil)
+
+	time.Sleep(10 * time.Second)
+	fmt.Println("Done")
+#+END_SRC
+  the main routine sleep 10 seconds, then exit; we can't see
+"doWork exited." message print on the screen; the doWork routine is leaked!
+as an counter example, we change the code and solving the leaking problem:
+#+BEGIN_SRC
+   doWork := func(strings <-chan string) <-chan interface{} {
+		completed := make(chan interface{})
+		go func() {
+			defer fmt.Println("doWork exited.")
+			defer close(completed)
+			for s := range strings {
+				fmt.Println(s)
+			}
+		}()
+
+		return completed
+	}
+
+    genStrings := func() <-chan string {
+			strings := make(chan string)
+			go func() {
+				defer close(strings)
+				for i := 0; i < 10; i++ {
+					strings <- strconv.Itoa(i)
+				}
+			}()
+
+			return strings
+    }
+
+    strs := genStrings()
+	doWork(strs)
+
+	time.Sleep(10 * time.Second)
+	fmt.Println("Done")
+}
+#+END_SRC
+   This code soving the leaking problem by give doWork a
+real channel!
+*** use channel pass cancellation signal
+ #+BEGIN_SRC
+   doWork := func(done <-chan interface{}, strings <-chan string) <-chan interface{} {
+		completed := make(chan interface{})
+		go func() {
+			defer fmt.Println("doWork exited.")
+			defer close(completed)
+
+			for {
+				select {
+				case s := <-strings:
+					fmt.Println(s)
+				case <-done:
+					return
+				}
+			}
+		}()
+
+		return completed
+	}
+
+	done := make(chan interface{})
+	terminated := doWork(done, nil)
+
+	go func() {
+		time.Sleep(1 * time.Second)
+		fmt.Println("Canceling doWork goroutines...")
+		close(done)
+	}()
+
+	<-terminated
+	fmt.Println("Done")
+ #+END_SRC
+
+   in main routine we spawn a new routine, which close "done" channel after one second,
+then doWork routine's "for-select" get this message, the doWork routine exit and close 
+"completed" channel; main "<-terminated" wait on this closed channel and return. look!
+no routine leak and deadlock happen!
+
+CONVENTION: If a gorutine is responsible for creating a goroitine, it is also responsible
+for ensure it can be stop the goroutine.
+** or-channel
+   or-channel is used to combine one or more done channels into
+a single done channel, if any one of these channels is closed, then
+the composed one will be closed.
+   snippet code of or-channel:
+
+#+BEGIN_SRC
+    var or func(channels ...<-chan interface{}) <-chan interface{}
+
+	or = func(channels ...<-chan interface{}) <-chan interface{} {
+		switch len(channels) {
+		case 0:
+			return nil
+		case 1:
+			return channels[0]
+		}
+
+		orDone := make(chan interface{})
+		go func() {
+			defer close(orDone)
+
+			switch len(channels) {
+			case 2:
+				select {
+				case <-channels[0]:
+				case <-channels[1]:
+				}
+			default:
+				select {
+				case <-channels[0]:
+				case <-channels[1]:
+				case <-channels[2]:
+				case <-or(append(channels[3:], orDone)...):
+				}
+			}
+		}()
+
+		return orDone
+	}
+#+END_SRC
+
+or-channel use case:
+#+BEGIN_SRC
+	sig := func(after time.Duration) <-chan interface{} {
+		c := make(chan interface{})
+		go func() {
+			defer close(c)
+			time.Sleep(after)
+		}()
+
+		return c
+	}
+
+	start := time.Now()
+	<-or(
+		sig(2*time.Hour),
+		sig(5*time.Minute),
+		sig(1*time.Second),
+		sig(1*time.Hour),
+		sig(1*time.Minute),
+	)
+	fmt.Printf("done after %v\n", time.Since(start))
+#+END_SRC
+    after one second, the process will terminated!
+
+	empty select:
+#+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+func main() {
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {}
+		fmt.Println("After select")
+	}()
+
+	wg.Wait()
+}
+#+END_SRC
+    when we running the code, get this CLI output:
+	[[file:./graph/empty_select.png]]
+	we know dead lock happen, but when we commented the empty select code line:
+    //select {}
+	we get this:
+	[[file:./graph/empty_select_cmt.png]]
+	so, the empty select cause the dead lock!!!
+** error handling in concurrent programming
+     what can you do when errors occur in goroutine? let's see a little
+   silly example:
+#+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func main() {
+	checkStatus := func(done <-chan interface{}, urls ...string) <-chan *http.Response {
+		responses := make(chan *http.Response)
+		go func() {
+			defer close(responses)
+			for _, url := range urls {
+				resp, err := http.Get(url)
+				if err != nil {
+					fmt.Println(err)  //:) only print the error in go routine, watch me!!!!
+					continue
+				}
+
+				select {
+				case <-done:
+					return
+				case responses <- resp:
+				}
+			}
+		}()
+		return responses
+	}
+
+	done := make(chan interface{})
+	defer close(done)
+
+	urls := []string{"https://www.baidu.com", "https://badhost"}
+	for response := range checkStatus(done, urls...) {
+		fmt.Printf("Response: %v\n", response.Status)
+	}
+}
+#+END_SRC
+    The previous code get sites responses, if success, move it into the result channel;
+if failed, just print the error message in the work goroutine and continue work!!
+    So the father routine(here is main routine) know nothing about the error(s) in his
+child routine, thought he has the full context of the logic, he can do nothing with these
+error(s).What a big tragedy!
+
+    smater_example:
+#+BEGIN_SRC
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func main() {
+	type Result struct {
+		Error    error
+		Response *http.Response
+	}
+
+	checkStatus := func(done <-chan interface{}, urls ...string) <-chan Result {
+		results := make(chan Result)
+		go func() {
+			defer close(responses)
+			for _, url := range urls {
+				var result Result
+				resp, err := http.Get(url)
+				result = Result{err, resp}
+
+				select {
+				case <-done:
+					return
+				case results <- result:
+				}
+			}
+		}()
+		return results
+	}
+
+	done := make(chan interface{})
+	defer close(done)
+
+	urls := []string{"https://www.baidu.com", "https://badhost"}
+	for result := range checkStatus(done, urls...) {
+		if result.Error != nil {
+			fmt.Printf("error: %v\n", result.Error)
+		}
+		fmt.Printf("Response: %v\n", results.Response.Status)
+	}
+}
+#+END_SRC
+
+    in previous smater example, we compose error result and normal result in
+a struct called Result, and return a channel which type is this kind of struct!
+now the main routine know all the result of his child routines! he can do 
+what he want to deal with this messages!
+** pipeline pattern
+*** function pipeline in golang
+**** batching processing
+#+BEGIN_SRC go
+package main
+
+import "fmt"
+
+func main() {
+	multiply := func(values []int, multiplier int) []int {
+		multipliedValues := make([]int, len(values))
+		for i, v := range values {
+			multipliedValues[i] = v * multiplier
+		}
+		return multipliedValues
+	}
+
+	add := func(values []int, adder int) []int {
+		addedValues := make([]int, len(values))
+		for i, v := range values {
+			addedValues[i] = v + adder
+		}
+		return addedValues
+	}
+
+	ints := []int{1, 2, 3, 4}
+	for _, v := range add(multiply(ints, 2), 1) {
+		fmt.Println(v)
+	}
+}
+#+END_SRC
+    the privious code simulate a batching process scene. every
+function eat a batch of data and pull out the same kind batch of
+data. It is something just like functional programming:
+#+BEGIN_SRC lisp
+(defun multi-lst (lst n)
+  (mapcar #'(lambda (x) (* x n))
+		  lst))
+
+(defun add-lst (lst n)
+  (mapcar #'(lambda (x) (+ x n))
+		  lst))
+
+(add-lst (multi-lst '(1 2 3 4) 2) 1)
+#+END_SRC
+    you can see how nature functional programming(here common lisp)
+implement this kind of batching pipeline process.
+**** stream processing
+#+BEGIN_SRC go
+    multiply := func(value, multiplier int) int {
+		return value * multiplier
+	}
+
+	add := func(value, adder int) int {
+		return value + adder
+	}
+
+	ints := []int{1, 2, 3, 4}
+	for _, v := range ints {
+		fmt.Println(add(multiply(v, 2), 1))
+	}
+#+END_SRC
+    the cons of the privious code is obvious: we have
+to instantialize a new pipe line in each iteration.
+*** use channel construct pipeline
+*** channel processing[manifest previous example]
+#+BEGIN_SRC go
+package main
+
+import "fmt"
+
+func main() {
+	generator := func(done <-chan interface{}, integers ...int) <-chan int {
+		intStream := make(chan int)
+		go func() {
+			defer close(intStream)
+			for _, i := range integers {
+				select {
+				case <-done:
+					return
+				case intStream <- i:
+				}
+			}
+		}()
+		return intStream
+	}
+
+	multiply := func(done <-chan interface{}, intStream <-chan int, multiplier int) <-chan int {
+		multipliedStream := make(chan int)
+		go func() {
+			defer close(multipliedStream)
+			for i := range intStream {
+				select {
+				case <-done:
+					return
+				case multipliedStream <- i * multiplier:
+				}
+			}
+		}()
+		return multipliedStream
+	}
+
+	add := func(done <-chan interface{}, intStream <-chan int, adder int) <-chan int {
+		addedStream := make(chan int)
+		go func() {
+			defer close(addedStream)
+			for i := range intStream {
+				select {
+				case <-done:
+					return
+				case addedStream <- i + adder:
+				}
+			}
+		}()
+		return addedStream
+	}
+
+	done := make(chan interface{})
+	defer close(done)
+
+	intStream := generator(done, 1, 2, 3, 4)
+	pipeline := multiply(done, add(done, multiply(done, intStream, 2), 1), 2)
+
+	for v := range pipeline {
+		fmt.Println(v)
+	}
+}
+#+END_SRC
+
+what the generator has done? it converts a discrete set of values into a stream
+of data on a channel.(This type of function is called generator)
+
+the biggest difference in channel pipeline and function pipe line: use the channel
+primitives, each stages of the pipeline is excuting cocurrently.
+*** some handy generator
+#+BEGIN_SRC
+package main
+
+import "fmt"
+
+func main() {
+	repeat := func(done <-chan interface{}, values ...interface{}) <-chan interface{} {
+		valueStream := make(chan interface{})
+		go func() {
+			defer close(valueStream)
+			for {
+				for _, v := range values {
+					select {
+					case <-done:
+						return
+					case valueStream <- v:
+					}
+				}
+			}
+		}()
+		return valueStream
+	}
+
+	take := func(done <-chan interface{}, valueStream <-chan interface{}, num int) <-chan interface{} {
+		takeStream := make(chan interface{})
+		go func() {
+			defer close(takeStream)
+			for i := 0; i < num; i++ {
+				select {
+				case <-done:
+					return
+				case takeStream <- <-valueStream:
+				}
+			}
+		}()
+		return takeStream
+	}
+
+	done := make(chan interface{})
+	defer close(done)
+
+	for num := range take(done, repeat(done, 10), 10) {
+		fmt.Printf("%v ", num)
+	}
+}
+#+END_SRC
+    in the privious code, "repeat" will repeat the value you pass to it infinitely until you tell it to stop;
+    "take" take the first num items off of its incoming stream if it is not closed so early!
+
+	let's see a new kind of repeat:
+#+BEGIN_SRC
+repeatFn := func(done <-chan interface{}, fn func() interface{}) <-chan interface{} {
+		valueStream := make(chan interface{})
+		go func() {
+			defer close(valueStream)
+			for {
+				select {
+				case <-done:
+					return
+				case valueStream <- fn():
+				}
+			}
+		}()
+		return valueStream
+	}
+#+END_SRC
+    "repeatFn" infinitely move the result of fn to the channel, we can use it like this:
+#+BEGIN_SRC
+	done := make(chan interface{})
+	defer close(done)
+
+	rand := func() interface{} {
+		return rand.Int()
+	}
+
+	for num := range take(done, repeatFn(done, rand), 10) {
+		fmt.Println(num)
+	}
+#+END_SRC
+    an infinite channel of random integers.
+**** interface{} and type assertion stage
+	 in the previous example, we let each stage eat interface{} and pull out
+ interface{}, how we want a stage deal with specific type?
+ #+BEGIN_SRC
+     toString := func(done <-chan interface{}, valueStream <-chan interface{}) <-chan string {
+		 stringStream := make(chan string)
+		 go func() {
+			 defer close(stringStream)
+			 for v := range valueStream {
+				 select {
+				 case <-done:
+					 return
+				 case stringStream <- v.(string):
+				 }
+			 }
+		 }()
+		 return stringStream
+	 }
+ #+END_SRC
+ #+BEGIN_SRC
+     var message string
+	 for token := range toString(done, take(done, repeat(done, "a", "b"), 10)) {
+		 message += token
+	 }
+
+	 fmt.Printf("message: %s...\n", message)
+ #+END_SRC
+** Fan-out, Fan-in
+the the privious pipeline pattern has a big problem, if one of the middle stage
+in the pipeline is computationally expensive, it will eclipse the performance 
+overhead.
+
+** or-done-channel
+when goroutine are reading from a channel, suddenly the routine is canceled, but
+how do you insure the channel which is being reading is closed too? you can implement
+it like this:
+
+#+BEGIN_SRC go
+orDone := func(done, c <-chan interface{}) <-chan interface{} {
+		valStream := make(chan interface{})
+		go func() {
+			defer close(valStream)
+			for {
+				select {
+				case <-done:
+					return
+				case v, ok := <-c:
+					if ok == false {
+						return
+					}
+					select {
+					case valStream <- v:
+					case <-done:
+					}
+				}
+			}
+		}()
+		return valStream
+	}
+
+	done := make(chan interface{})
+	defer close(done)
+
+	getoutchan := func() <-chan interface{} {
+		outchan := make(chan interface{})
+		go func() {
+			for i := 0; i < 100; i++ {
+				outchan <- i
+			}
+		}()
+		return outchan
+	}
+
+	outerchan := getoutchan()
+
+	ordonechan := orDone(done, outerchan)
+	for v := range ordonechan {
+		fmt.Println(v)
+		time.Sleep(time.Second)
+	}
+#+END_SRC
+
+in the privious code snippet, outerchan is getting by call getoutchan(); it can be treated
+like a channel from other component of this program; we use *orDone* fileter out a new
+channel *ordonechan*, we the *close(done)* is called, it can be insure that this *ordonechan*
+will be closed!
+
+** tee-channel
+in linux/unix system, you can use the *tee* command to sperate out
+a new data stream to file:
+#+BEGIN_SRC sh
+ls -l | tee test.txt | wc -l
+#+END_SRC
+the result of "ls -l" will dump to test.txt file, and a same duplication
+will be regarded as the input of "wc -l"
+
+#+BEGIN_SRC go
+tee := func(done <-chan interface{}, in <-chan interface{}) (_, _ <-chan interface{}) {
+		out1 := make(chan interface{})
+		out2 := make(chan interface{})
+
+		go func() {
+			defer close(out1)
+			defer close(out2)
+			for val := range orDone(done, in) {
+				var out1, out2 = out1, out2
+				for i := 0; i < 2; i++ {
+					select {
+					case <-done:
+					case out1 <- val:
+						out1 = nil
+					case out2 <- val:
+						out2 = nil
+					}
+				}
+			}
+		}()
+		return out1, out2
+	}
+
+	done := make(chan interface{})
+	defer close(done)
+
+	getoutchan := func() <-chan interface{} {
+		outchan := make(chan interface{})
+		go func() {
+			for i := 0; i < 100; i++ {
+				outchan <- i
+			}
+		}()
+		return outchan
+	}
+
+	outerchan := getoutchan()
+
+	stream1, stream2 := tee(done, outerchan)
+	for v := range orDone(done, stream1) {
+		fmt.Printf("stream1: %v, stream2: %v\n", v, <-stream2)
+		time.Sleep(time.Second)
+	}
+#+END_SRC
+
+** bridge-channel
+the difference bettween "a sequece of channels" and "a slice of channels":
+ 
+|----chan1---- |-----chan2------- |------chan3------- |
+sequece of channels is just "channel of channels", elements in inner channel(such chan1)
+have order, channel in out also have an order(chan1 > chan2 > chan3); let's see how to
+generate such a "sequece of channels":
+
+#+BEGIN_SRC go
+genChanSeq := func() <-chan <-chan interface{} {
+		rand.Seed(time.Now().UnixNano())
+		seqChan := make(chan (<-chan interface{}))
+		go func() {
+			for {
+				//generate inner channel
+				rndNum := 1 + rand.Intn(10)
+				innerChan := make(chan interface{}, rndNum)
+
+				for i := 0; i < rndNum; i++ {
+					innerChan <- "str" + strconv.Itoa(rndNum)
+				}
+
+				seqChan <- innerChan
+				close(innerChan)
+
+				time.Sleep(time.Second)
+			}
+		}()
+
+		return seqChan
+	}
+#+END_SRC
+in the previous code snippet, *genChanSeq* will generate a sequence of channels,
+every inner channel in this "sequence" is a buffered channel contains random strings;
+
+we can get all the elements out like this:
+#+BEGIN_SRC go
+	chanseq := genChanSeq()
+	//do not use briage channel
+	for innerChan := range chanseq {
+		for v := range innerChan {
+			fmt.Println(v)
+		}
+	}
+#+END_SRC
+
+the code is some kind of verbose, we can use bridge-channel to merge them into one channel:
+#+BEGIN_SRC go
+	bridge := func(done <-chan interface{}, chanStream <-chan <-chan interface{}) <-chan interface{} {
+		valStream := make(chan interface{})
+		go func() {
+			defer close(valStream)
+			for {
+				//get a inner channel
+				var stream <-chan interface{}
+				select {
+				case maybeStream, ok := <-chanStream:
+					if ok == false {
+						return
+					}
+					stream = maybeStream
+				case <-done:
+					return
+				}
+
+				//interate in the inner channel
+				for val := range orDone(done, stream) {
+					select {
+					case valStream <- val:
+					case <-done:
+					}
+				}
+			}
+		}()
+		return valStream
+	}
+#+END_SRC
+after bridge the sequence of channels, we can get a final value stream:
+#+BEGIN_SRC go
+	done := make(chan interface{})
+	defer close(done)
+
+	seq := bridge(done, genChanSeq())
+	for v := range seq {
+		fmt.Println(v)
+	}
+#+END_SRC
+now, the logic in the code is better clear;
+
+** use channel just like a queue
+A Critia: Queuing Will Almost Never Speed Up The Total Runtime Of Your Program; 
+It Will Only Allow The Program To Behave Differently.
+
+** the context package
+In the previous patterns, we use "done" channel to cancel all blocking concurrent
+oprations. but the the "done" tell nothing about why the cancelling happening! So
+it would be useful if add some extra information with the done channel.
+
+done + some extra info ==> the context package is comming out:
+#+BEGIN_SRC go
+var Canceled = errors.New("context canceled")
+var DeadlineExceeded error = deadlineExceededError{}
+func WithCancel(parent Context) (ctx Context, cancel CancelFunc)
+func WithDeadline(parent Context, d time.Time) (Context, CancelFunc)
+func WithTimeout(parent Context, timeout time.Duration) (Context, CancelFunc)
+type CancelFunc func()
+type Context interface{ ... }
+func Background() Context
+func TODO() Context
+func WithValue(parent Context, key, val interface{}) Context
+#+END_SRC
+
+now let's see the content of *Context* interface:
+#+BEGIN_SRC go
+type Context interface {
+	// Deadline returns the time when work done on behalf of this context
+	// should be canceled. Deadline returns ok==false when no deadline is
+	// set. Successive calls to Deadline return the same results.
+	Deadline() (deadline time.Time, ok bool)
+
+	// Done returns a channel that's closed when work done on behalf of this
+	// context should be canceled. Done may return nil if this context can
+	// never be canceled. Successive calls to Done return the same value.
+	//
+	// WithCancel arranges for Done to be closed when cancel is called;
+	// WithDeadline arranges for Done to be closed when the deadline
+	// expires; WithTimeout arranges for Done to be closed when the timeout
+	// elapses.
+	//
+	// Done is provided for use in select statements:
+	//
+	//  // Stream generates values with DoSomething and sends them to out
+	//  // until DoSomething returns an error or ctx.Done is closed.
+	//  func Stream(ctx context.Context, out chan<- Value) error {
+	//  	for {
+	//  		v, err := DoSomething(ctx)
+	//  		if err != nil {
+	//  			return err
+	//  		}
+	//  		select {
+	//  		case <-ctx.Done():
+	//  			return ctx.Err()
+	//  		case out <- v:
+	//  		}
+	//  	}
+	//  }
+	//
+	// See https://blog.golang.org/pipelines for more examples of how to use
+	// a Done channel for cancellation.
+	Done() <-chan struct{}
+
+	// If Done is not yet closed, Err returns nil.
+	// If Done is closed, Err returns a non-nil error explaining why:
+	// Canceled if the context was canceled
+	// or DeadlineExceeded if the context's deadline passed.
+	// After Err returns a non-nil error, successive calls to Err return the same error.
+	Err() error
+
+	// Value returns the value associated with this context for key, or nil
+	// if no value is associated with key. Successive calls to Value with
+	// the same key returns the same result.
+	//
+	// Use context values only for request-scoped data that transits
+	// processes and API boundaries, not for passing optional parameters to
+	// functions.
+	//
+	// A key identifies a specific value in a Context. Functions that wish
+	// to store values in Context typically allocate a key in a global
+	// variable then use that key as the argument to context.WithValue and
+	// Context.Value. A key can be any type that supports equality;
+	// packages should define keys as an unexported type to avoid
+	// collisions.
+	//
+	// Packages that define a Context key should provide type-safe accessors
+	// for the values stored using that key:
+	//
+	// 	// Package user defines a User type that's stored in Contexts.
+	// 	package user
+	//
+	// 	import "context"
+	//
+	// 	// User is the type of value stored in the Contexts.
+	// 	type User struct {...}
+	//
+	// 	// key is an unexported type for keys defined in this package.
+	// 	// This prevents collisions with keys defined in other packages.
+	// 	type key int
+	//
+	// 	// userKey is the key for user.User values in Contexts. It is
+	// 	// unexported; clients use user.NewContext and user.FromContext
+	// 	// instead of using this key directly.
+	// 	var userKey key
+	//
+	// 	// NewContext returns a new Context that carries value u.
+	// 	func NewContext(ctx context.Context, u *User) context.Context {
+	// 		return context.WithValue(ctx, userKey, u)
+	// 	}
+	//
+	// 	// FromContext returns the User value stored in ctx, if any.
+	// 	func FromContext(ctx context.Context) (*User, bool) {
+	// 		u, ok := ctx.Value(userKey).(*User)
+	// 		return u, ok
+	// 	}
+	Value(key interface{}) interface{}
+}
+#+END_SRC
+
+*** use context as API for cancelling branches of routines call-graph:
+what is "routine cancel":
+1. A goroutine’s parent may want to cancel it.
+2. A goroutine may want to cancel its children.
+3. Any blocking operations within a goroutine need to be preemptable so that it
+may be canceled.
+
+**** use the done channel pattern to cancelling routines:
+#+BEGIN_SRC go
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+func main() {
+	var wg sync.WaitGroup
+	done := make(chan interface{})
+	defer close(done)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := printGreeting(done); err != nil {
+			fmt.Printf("%v", err)
+			return
+		}
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := printFarewell(done); err != nil {
+			fmt.Printf("%v", err)
+			return
+		}
+	}()
+	wg.Wait()
+}
+
+func printGreeting(done <-chan interface{}) error {
+	greeting, err := genGreeting(done)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s world!\n", greeting)
+	return nil
+}
+
+func printFarewell(done <-chan interface{}) error {
+	farewell, err := genFarewell(done)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s world!\n", farewell)
+	return nil
+}
+
+func genGreeting(done <-chan interface{}) (string, error) {
+	switch locale, err := locale(done); {
+	case err != nil:
+		return "", err
+	case locale == "EN/US":
+		return "hello", nil
+	}
+	return "", fmt.Errorf("unsupported locale")
+}
+
+func genFarewell(done <-chan interface{}) (string, error) {
+	switch locale, err := locale(done); {
+	case err != nil:
+		return "", err
+	case locale == "EN/US":
+		return "goodbye", nil
+	}
+	return "", fmt.Errorf("unsupported locale")
+}
+
+func locale(done <-chan interface{}) (string, error) {
+	select {
+	case <-done:
+		return "", fmt.Errorf("canceled")
+	case <-time.After(1 * time.Minute):
+	}
+	return "EN/US", nil
+}
+#+END_SRC
+**** use context.Context manage routines:
+#+BEGIN_SRC go
+package main
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+)
+
+func main() {
+	var wg sync.WaitGroup
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		if err := printGreeting(ctx); err != nil {
+			fmt.Printf("can not print greeting: %v\n", err)
+			cancel()
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		if err := printFarewell(ctx); err != nil {
+			fmt.Printf("can not print farewell: %v\n", err)
+			cancel()
+		}
+	}()
+
+	wg.Wait()
+}
+
+func printGreeting(ctx context.Context) error {
+	greeting, err := genGreeting(ctx)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%s world!\n", greeting)
+	return nil
+}
+
+func printFarewell(ctx context.Context) error {
+	farewell, err := genFarewell(ctx)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%s world!\n", farewell)
+	return nil
+}
+
+func genGreeting(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)  //key point
+	defer cancel()
+
+	switch locale, err := locale(ctx); {
+	case err != nil:
+		return "", err
+	case locale == "EN/US":
+		return "hello", nil
+	}
+
+	return "", fmt.Errorf("unsupported locale")
+}
+
+func genFarewell(ctx context.Context) (string, error) {
+	switch locale, err := locale(ctx); {
+	case err != nil:
+		return "", err
+	case locale == "EN/US":
+		return "goodbye", nil
+	}
+
+	return "", fmt.Errorf("unsupported locale")
+}
+
+func locale(ctx context.Context) (string, error) {
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-time.After(1 * time.Minute):
+	}
+
+	return "EN/US", nil
+}
+#+END_SRC
+*** use context as a data-bag for transporting request-scoped data through call-graph:
+* concurrency at scale
+Make errors as the first citizens in your system.
+What errors are? :
+1. What happend? "disk full", "file not find", et el...
+2. When and Where it happened?
+   complete stack trace of the error, the context it's running in, and UTC time
+3. friendly user-facing message
+   let user know your error in an easy way.
+4. some indications to more comprehensive information
+
+two categories of errors:
+A. bugs;
+B. known edge cases;
+
+the following code snippt illustrate how to handle error and edge cases gracefully:
+#+BEGIN_SRC go
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"runtime/debug"
+)
+
+type MyError struct {
+	Inner      error
+	Message    string
+	StackTrace string
+	Misc       map[string]interface{}
+}
+
+func wrapError(err error, messagef string, msgArgs ...interface{}) MyError {
+	return MyError{
+		Inner:      err,
+		Message:    fmt.Sprintf(messagef, msgArgs...),
+		StackTrace: string(debug.Stack()),
+		Misc:       make(map[string]interface{}),
+	}
+}
+
+func (err MyError) Error() string {
+	return err.Message
+}
+
+//"lowlevel module"
+type LowLevelErr struct {
+	error
+}
+
+func isGloballyExec(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, LowLevelErr{(wrapError(err, err.Error()))}
+	}
+	return info.Mode().Perm()&0100 == 0100, nil
+}
+
+//"intermediate" module
+type IntermediateErr struct {
+	error
+}
+
+func runJob(id string) error {
+	const jobBinPath = "/bad/job/binary"
+	isExecutable, err := isGloballyExec(jobBinPath)
+	if err != nil {
+		//return err
+		return IntermediateErr{
+			wrapError(err, "can not run job %q: requisite binaries not available", id),
+		}
+	} else if isExecutable == false {
+		//return wrapError(nil, "job binary is not executable")
+		return wrapError(nil, "can not run job %q,  binary is not executable", id)
+	}
+
+	return exec.Command(jobBinPath, "--id="+id).Run()
+}
+
+//"top-level"
+func handleError(key int, err error, message string) {
+	log.SetPrefix(fmt.Sprintf("[logID: %v]: ", key))
+	log.Printf("%#v", err)
+	fmt.Printf("[%v] %v\n", key, message)
+}
+
+func main() {
+	log.SetOutput(os.Stdout)
+	log.SetFlags(log.Ltime | log.LUTC)
+
+	err := runJob("1")
+	if err != nil {
+		msg := "There was an unexpected issue; please report this as a bug."
+		if _, ok := err.(IntermediateErr); ok {
+			msg = err.Error()
+		}
+		handleError(1, err, msg)
+	}
+}
+#+END_SRC
+we can use third party libary to deal this kind of error problems:
+github.com/pkg/errors
+#+BEGIN_SRC go
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/pkg/errors"
+)
+
+func main() {
+	_, err := open_file("./bad.txt")
+	if err != nil {
+		fmt.Println("full error: ")
+		fmt.Println(err.Error())
+		fmt.Println("inner error: ")
+		innererr := errors.Cause(err)
+		if innererr != nil {
+			fmt.Println(innererr.Error())
+		}
+	}
+}
+
+func open_file(filepath string) (*os.File, error) {
+	f, err := os.Open(filepath)
+	if err != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("open %s file failed!", filepath))
+	}
+	return f, nil
+}
+#+END_SRC
+
+* NATS: messaging
+** sending and receiving messages across nats-server
+*** sending message to a subject in nats
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	if err := nc.Publish("updates", []byte("This is the first message.")); err != nil {
+		log.Fatal(err)
+	}
+#+END_SRC
+    first connect to nats, then Publish the message
+	if the sender want get a reply from the receiver:
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	// create a unique subject name for replies
+	uniqueReplyTo := nats.NewInbox()
+
+	// listen for a single response
+	sub, err := nc.SubscribeSync(uniqueReplyTo)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//send the request
+	if err := nc.PublishRequest("updates", uniqueReplyTo, []byte("This is a message")); err != nil {
+		log.Fatal(err)
+	}
+
+	//read the reply
+	msg, err := sub.NextMsg(time.Second)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//the response message
+	log.Printf("Reply: %s", msg.Data)
+#+END_SRC
+    the sender init a *Inbox* by nats.NewInbox(), this inbox is a unique subject for sender to use;
+sender use this subject to get reply messages from the receiver; when receiver get message from nats,
+it contain this subject, now it can send some reply back;
+*** receiving messages on a subject synchronically
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	// Subscribe synchronize
+	sub, err := nc.SubscribeSync("updates")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Wait for a message(give a dead line)
+	msg, err := sub.NextMsg(10 * time.Second)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Use the response
+	log.Printf("Reply: %s", msg.Data)
+#+END_SRC
+    when use NextMsg to retrive a message on a subscribe,
+if after 10 seconds there is no message, return an error.
+*** request-reply sematics
+what under the *Request* method is that, it publish a message with a unique reply subject;
+the *Request* will wait for the response before returning;
+   #+BEGIN_SRC go 
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	msg, err := nc.Request("updates", []byte("This is a beating heart"), time.Second)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//the response message
+	log.Printf("Reply: %s", msg.Data)
+   #+END_SRC
+*** scatter-gather sematics
+	send a message to receive and wait multiple messages from the inbox subject;
+the code of the sender:
+#+BEGIN_SRC go
+	nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	// create a unique subject name for replies
+	uniqueReplyTo := nats.NewInbox()
+
+	// listen for a single response
+	sub, err := nc.SubscribeSync(uniqueReplyTo)
+	if err != nil {
+		log.Fatal(err)
+	}
+	nc.Flush()
+
+	//send the request
+	if err := nc.PublishRequest("updates", uniqueReplyTo, []byte("from itanly, emergence message, need help!")); err != nil {
+		log.Fatal(err)
+	}
+
+	max := 500 * time.Millisecond
+	start := time.Now()
+	responses := make([]string, 0)
+	var minResponses = 100
+
+	for time.Now().Sub(start) < max {
+		msg, err := sub.NextMsg(time.Second)
+		if err != nil {
+			break
+		}
+
+		responses = append(responses, string(msg.Data))
+
+		if len(responses) >= minResponses {
+			break
+		}
+	}
+
+	fmt.Println(responses)
+#+END_SRC
+the code of the receiver:
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	// Subscribe synchronize
+	sub, err := nc.SubscribeSync("updates")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Wait for a message(give a dead line)
+	msg, err := sub.NextMsg(10 * time.Second)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Use the response
+	log.Printf("Reply: %s", msg.Data)
+
+	province := [4]string{"anhui", "shanghai", "jiangsu", "zhejiang"}
+	// Finally send a response back to the message sender
+	for i := 0; i < 150; i++ {
+		repmsg := fmt.Sprintf("|this is one ton of N95 masks from %v", province[i%4])
+
+		err = nc.Publish(msg.Reply, []byte(repmsg))
+		if err != nil {
+			log.Fatal(err)
+		}
+		time.Sleep(5 * time.Microsecond)
+	}
+#+END_SRC
+
+*** sending and receiving struct data
+send a struct in json encoding:
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	ec, err := nats.NewEncodedConn(nc, nats.JSON_ENCODER)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ec.Close()
+
+	//define the object
+	type helpmsg struct {
+		From    string
+		Message string
+		Need    uint32
+	}
+
+	//send the request
+	if err := ec.Publish("updates", &helpmsg{From: "italy", Message: "help", Need: 100}); err != nil {
+		log.Fatal(err)
+	}
+#+END_SRC
+
+recv a struct in json encoding:
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	ec, err := nats.NewEncodedConn(nc, nats.JSON_ENCODER)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ec.Close()
+
+	//define the object
+	type helpmsg struct {
+		From    string
+		Message string
+		Need    uint32
+	}
+	wg := sync.WaitGroup{}
+
+	wg.Add(1)
+	if _, err := ec.Subscribe("updates", func(h *helpmsg) {
+		log.Printf("\nFrom: %v\nMessage: %v\nNeed: %v\n", h.From, h.Message, h.Need)
+	}); err != nil {
+		log.Fatal(err)
+	}
+	wg.Wait()
+#+END_SRC
+
+** using tool to monitor nats server
+nats-top: a tool like top command in linux
+** bech nats
+*** publish benchmark
+"nats-bench -np 1 -n 1000000 -ms 1000 foo": 
+1 producer, 1000000 messages, size of each message is 1000 bytes,
+
+rusult:
+[[file:./graph/natsbench1.png]]
+
+*** pub/sub benchmark
+"nats-bench -np 1 -ns 1 -n 1000000 -ms 16 foo":
+1 producer, 1 consumer, 1000000 messages, size of each message is 16 bytes,
+
+result:
+[[file:./graph/natsbench2.png]]
+
+cpu and memory info of my test computer:
+ *-cpu
+          description: CPU
+          product: Intel(R) Core(TM) i7-4790 CPU @ 3.60GHz
+          vendor: Intel Corp.
+          physical id: 9
+          bus info: cpu@0
+          version: Intel(R) Core(TM) i7-4790 CPU @ 3.60GHz
+          slot: SOCKET 0
+          size: 3330MHz
+          capacity: 4GHz
+          width: 64 bits
+          clock: 100MHz
+
+*-memory
+          description: System Memory
+          physical id: d
+          slot: System board or motherboard
+          size: 16GiB
+
+*** 1/N benchmark
+"nats-bench -np 1 -ns 5 -n 1000000 -ms 16 foo": 1 publisher, 5 subcriber
+result:
+[[file:./graph/natsbench3.png]]
+
+"nats-bench -np 1 -ns 10 -n 1000000 -ms 16 foo": 1 publisher, 10 subcriber
+result:
+[[file:./graph/natsbench4.png]]
+
+"nats-bench -np 1 -ns 1 -n 1000000 -ms 4096 foo": 1 publisher, 1 subscriber, size 4K
+result:
+[[file:./graph/natsbench5.png]]
+
+*** sending latency benchmark
+sender:
+#+BEGIN_SRC go
+package main
+
+import (
+	"encoding/binary"
+	"log"
+	"os"
+	"strconv"
+	"time"
+
+	"github.com/nats-io/nats.go"
+)
+
+func main() {
+	if len(os.Args) <= 2 {
+		log.Fatal("argument not enough")
+		os.Exit(1)
+	}
+
+	msgnum, err := strconv.Atoi(os.Args[1])
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	bodysize, err := strconv.Atoi(os.Args[2])
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	if bodysize < 8 {
+		log.Fatal("msgbody size is not enough")
+		os.Exit(1)
+	}
+
+	nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	msgbody := make([]byte, bodysize)
+
+	for i := 0; i < msgnum; i++ {
+		binary.LittleEndian.PutUint64(msgbody, uint64(time.Now().UnixNano()))
+
+		//send the request
+		if err := nc.Publish("updates", msgbody); err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+
+		time.Sleep(time.Microsecond * 1)
+	}
+}
+#+END_SRC
+receiver:
+#+BEGIN_SRC go
+package main
+
+import (
+	"encoding/binary"
+	"log"
+	"os"
+	"strconv"
+	"time"
+
+	"github.com/nats-io/nats.go"
+	"gonum.org/v1/gonum/stat"
+)
+
+func main() {
+	if len(os.Args) <= 1 {
+		log.Fatal("argument not enough")
+		os.Exit(1)
+	}
+
+	msgnum, err := strconv.Atoi(os.Args[1])
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	nc, err := nats.Connect("nats://127.0.0.1:4222")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Close()
+
+	sub, err := nc.SubscribeSync("updates")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sub.Unsubscribe()
+
+	lantencys := make([]float64, msgnum)
+	for i := 0; i < msgnum; i++ {
+		msg, err := sub.NextMsg(10 * time.Second)
+		if err != nil {
+			log.Fatal(err)
+		}
+		sendtime := binary.LittleEndian.Uint64(msg.Data[0:8])
+		lantency := uint64(time.Now().UnixNano()) - sendtime
+		lantencys[i] = float64(lantency)
+	}
+
+	mean := stat.Mean(lantencys, nil)
+	stddev := stat.StdDev(lantencys, nil)
+
+	log.Printf("mean latency of %v messages is %v\n", msgnum, mean)
+	log.Printf("stddev of latencies of %v messages is %v\n", msgnum, stddev)
+}
+#+END_SRC
+bench result(sync mode):
+./natsend 100000 40 [send 10w 40byte  messages]
+[[file:./graph/latenbench1.png]]
+
+./natsend 100000 100 [send 10w 100byte messages]
+[[file:./graph/latenbench2.png]]
+
+./natsend 100000 500 [send 10w 500byte messages]
+[[file:./graph/latenbench3.png]]
+
+./natsend 100000 1024 [send 10w 1K messages]
+[[file:./graph/latenbench4.png]]
+
+./natsend 100000 10240 [send 10w 10K messages]
+[[file:./graph/latenbench5.png]]
+
+./natsend 100000 20480 [send 10w 20K messages]
+[[file:./graph/latenbench7.png]]
+
+./natsend 100000 30720 [send 10w 30K messages]
+[[file:./graph/latenbench8.png]]
+** nats streaming...
+*** feature:
+  1. protobuffer enhanced protocol
+  2. offer configurable message persistence
+  3. at-least-once dilivery
+  4. publisher rate limiting
+  5. rate matching/limiting  per subcriber
+  6. historical message replay by subject
+     : The earliest message stored for this subject
+       [从subject开始处订阅]
+
+     : The most recently stored message for this subject, 
+       prior to the start of the current subscription. 
+       This is commonly thought of as "last value" or "initial value" caching.
+       [从最新的消息开始订阅]
+
+     : A specific date/time in nanoseconds
+       [从某一个特定的时刻开始订阅]
+
+     : An historical offset from the current server 
+       date/time, e.g. the last 30 seconds.
+       [从服务器的某个时间之前]
+
+     : A specific message sequence number
+       [特定序号]
+   7. durable subscribe: allow client restart
+*** nats streaming relation to nats server
+	[[file:./graph/nats_streaming1.png]]
+	the client of streaming server does not directly connect to streaming server,
+    but communicate with the streaming server through NATS server.
+
+	every valid client has its own unique client ID,
+
+*** channels:
+    Channels are subjects client send data and counsume from
+
+	message log: message log is just like a FIFO queue. it can be configered 
+    a limit, when this limit is reached, older messages will be removed for
+    the new ones;
+
+	a client creates a subscription on a given channel(no support for wildcard);
+    the streaming server maitain the state of this subscription. a subscription
+    can be created to start at any point in the message log;
+
+	type of subscription:
+    A. Regular: the state of these subscription is removed when they are unsubscribed or closed;
+    B. Durable: the client provide a durable name with the client ID when initialize the
+       connection, so when client closed and then restart it can resume message consumtion.
+    C. Queue Group: multiple comsumers can consume from the same channel, and each will
+       receive different messages;
+       [[file:./graph/nats_streaming2.png]]
+    D. Redilivery: the messages which not receive cousumer acks will be 
+       rediliveried;
+*** Store interface 
+** nats streaming dev
+*** using at-least-once delivery
+	this at-least-once delivery guarantee is the facet of messaging
+    with the hightest cost in terms of compute and storage;
+*** when to use NATS streaming:
+    1. consumer want to replay of data;
+    2. in the stream of message, when initialize a connenct it need
+       the last message in the stream, but producer may be offline;
+    3. data producers and consumers are highly decoupled
+    4. data lifespan in messages is longer that app;
+    5. app need to consume data at their own sapce;
+*** when to use core NATS:
+	1. Service patterns where there is a tightly coupled request/reply;
+	2. Only the last message received is important and new messages will
+       be received frequently enough for app to tolerate a lost message;
+	3. Low ttl message
+*** nats streaming overview:
+	Where NATS provides at most once quality of service, streaming adds 
+    *at least once*. Streaming is implemented as a *request-reply* service 
+    on top of NATS. Streaming messages are encoded as *protocol buffers*, 
+    the streaming clients use NATS to talk to the streaming server. The 
+    streaming server *organizes messages* in *channels* and stores them in 
+    files and databases. *ACKs* are used to ensure delivery in *both directions*.
+
+	
+	NATS streaming uses the concept of a channel to represent an 
+	ordered collection of messages. clients send to and receive from
+    channels instead of subjects;
+*** acks in streaming:
+	ack for each message can scale down the performance of the system,
+	nats streaming system allow subscriber to set a *max in flight* value;
+    [在途消息量]
+    max_in_flight = 10 => at a single moment, nats streaming system only
+                          allow 10 acks not received from client
+	
+	Setting max in flight to a number greater than 1 requires some thought 
+    and foresight to deal with redelivery scenarios.
+** nats streaming in action:
+*** durable subscription test:
+producer:
+    send messages to server per second:
+#+BEGIN_SRC go
+	sc, err := stan.Connect("test-cluster", "publish-client")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+	defer sc.Close()
+
+	stopsending := make(chan int)
+
+	go func() {
+		i := 1
+		//synchronously publish message to server
+		for {
+			select {
+			case <-stopsending:
+				return
+			default:
+			}
+
+			msg := fmt.Sprintf("this is the %dth ruster.", i)
+
+			err = sc.Publish("rust", []byte(msg))
+			if err != nil {
+				log.Fatal(err)
+				os.Exit(1)
+			}
+
+			time.Sleep(time.Millisecond * 1000)
+			fmt.Printf("send the %vth message.\n", i)
+			i++
+		}
+	}()
+
+	signalChan := make(chan os.Signal, 1)
+	cleanupDone := make(chan bool)
+	signal.Notify(signalChan, os.Interrupt)
+	go func() {
+		for range signalChan {
+			fmt.Println("\nReceived an interrupt and closing connection...\n\n")
+			sc.Close()
+			stopsending <- 1
+			cleanupDone <- true
+		}
+	}()
+	<-cleanupDone
+#+END_SRC
+subscriber:
+   first init a connection to server => subcriber using a durable name
+   receive 40 messages(every message give a manully ack back) => close
+   the connection, wait some time => reconnect and subcribe the same
+   channel again;
+#+BEGIN_SRC go
+	sc, err := stan.Connect("test-cluster", "subcriber-client")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	stopsub := make(chan int)
+	go func() {
+		_, err := sc.Subscribe("rust", func(m *stan.Msg) {
+			fmt.Printf("[First]Received a message: %s, seq: %v\n", string(m.Data), m.Sequence)
+			if m.Sequence >= 40 {
+				m.Ack()
+				sc.Close()
+				stopsub <- 1
+			}
+			m.Ack() //manully send ack back to server
+		}, stan.StartAtSequence(1), stan.SetManualAckMode(), stan.DurableName("my-durename"))
+
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+	}()
+
+	<-stopsub
+	fmt.Println("stop the first subcribe, and close the connection")
+
+	sc, err = stan.Connect("test-cluster", "subcriber-client")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	sc.Subscribe("rust", func(m *stan.Msg) {
+		fmt.Printf("[Second]Received a message: %s, seq: %v\n", string(m.Data), m.Sequence)
+	}, stan.DurableName("my-durename"))
+
+	signalChan := make(chan os.Signal, 1)
+	cleanupDone := make(chan bool)
+	signal.Notify(signalChan, os.Interrupt)
+	go func() {
+		for range signalChan {
+			fmt.Println("\nReceived an interrupt and closing connection...\n\n")
+			//sub.Unsubscribe()
+			sc.Close()
+			cleanupDone <- true
+		}
+	}()
+	<-cleanupDone
+#+END_SRC
+   noted that, when we resubcribe using the *DurableName* the server
+will send the message next to the last "acked" message;
+
+*** queue group subscriptions test:
+all subscriptions with the same queue name (regardless of the connection 
+they originate from) will form a queue group. Each message will be delivered 
+to only one subscriber per queue group, using queuing semantics;
+
+fist test a two member queue senario:
+producer: 
+    same as *durable subscription test*
+subscribers:
+quesub1:
+#+BEGIN_SRC go
+    sc, err := stan.Connect("test-cluster", "quesub1")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	//create a queue subscriber on "rust" for group "hacker"
+	qsub, err := sc.QueueSubscribe("rust", "hacker", func(msg *stan.Msg) {
+		fmt.Printf("[quesub1] recv message: %v, seq: %v\n", string(msg.Data), msg.Sequence)
+	}, stan.DeliverAllAvailable())
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+#+END_SRC
+quesub2:
+#+BEGIN_SRC go
+sc, err := stan.Connect("test-cluster", "quesub2")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	//create a queue subscriber on "rust" for group "hacker"
+	qsub, err := sc.QueueSubscribe("rust", "hacker", func(msg *stan.Msg) {
+		fmt.Printf("[quesub2] recv message: %v, seq: %v\n", string(msg.Data), msg.Sequence)
+	}, stan.DeliverAllAvailable())
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+#+END_SRC
+result:
+[[file:./graph/queuesub1.png]]
+
+[[file:./graph/queuesub2.png]]
+
+once all members leave the group, the group will be removed
+from the server;
+
+*** advanced useage:
+**** watching client connection status:
+#+BEGIN_SRC go
+    nc, err := nats.Connect("nats://localhost:4223")
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	sc, err := stan.Connect("test-cluster",
+		"quesub1",
+		stan.NatsConn(nc),
+		stan.Pings(10, 5),
+		stan.SetConnectionLostHandler(func(_ stan.Conn, reason error) {
+			log.Fatalf("Connection lost, reason: %v", reason)
+		}))
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+#+END_SRC
+
+we do not use the embeded NATS server, but start a independent NATS server;
+in the privous code, when NATS streaming server crash down, after 10 * 5 seconds,
+the client will come into the conn lost handling;
+
+*** message ordered sub/pub:
+* nats-server hacking
+** code flow
+1. process command line flags or config files(priority: flags > config files)
+2. create a new server
+3. running the new server
+** how to create a new nats server?
+   1. set base line options:
+      if the flags and config file not supply the specific option, then use the base line;
+   2. gen public and private key
+   3. validate the options
+	  [默认max_payload_size=1M]
+   4. running the server:
+** deal with client readloop and writeloop
+*** protocol specification
+*** the mechenics of the nats server data parser:
+	(how derek collison create this amazing parser?)
+	use a state change mechine and a text message protocol, he implement a zero-memory-allocate parser;
+	as an example, let's check out how the parser parse an *publish* request:
+
+	[[file:graph/nats_paser.png][how nats server parse a pub request]]
+    Fig 1: how nats server parse a publish message
+
+*** how push message is pumped to the client
+     start the nsts server
+#+BEGIN_SRC
+     $nats-server 
+#+END_SRC	 
+     assume one subcriber subcribe subject "foo.bar" using ID 90:
+#+BEGIN_SRC sh 
+     $telnet 127.0.0.1 4222
+     ......
+     sub foo.bar 90
+#+END_SRC	 
+	 after subcribe, one publisher publish a message "hello" to this topic:
+#+BEGIN_SRC sh 
+     $telnet 127.0.0.1 4222
+     ......
+     pub foo.bar 5
+     hello
+#+END_SRC	 
+     under this context, how the message "hello" is routine to the clinet?
+
+**** subscribe: 
+    [[file:./graph/nats_server_subcribe.png][how nats server deal with a subcribe]]
+    Fig.2 how nats-server deal with a subcribe
+     
+    1. parser status change when receive "sub foo.bar 90" message;
+    2. when parser finish his work, it will step into "processSub"
+       function; insert current subscribe into the sublist, which 
+       is a list struct for effective retrive/insertion;
+
+**** publish:
+    Fig.1 already show how the parser deal with a publish message, when
+    the message is parsed out, the server continue the following steps:
+    [[file:./graph/process_publish.png][process publish message]]
+    Fig.3 how server process a publish message
+    
+	1. "MSG_END_N" tell the parser finish message parsing, then 
+       the server will search the subcribe list[a high effecient
+       list] to find the subscibe(s):
+
+	2. if find subsciber(s), it will push a struct{}{} into c.out.sch,
+       which is a channel to notify the message pumping;
+
+    3. the writeLoop routine use a "for...select" waiting on this channel,
+       once check this channel is filled, it will send message to subscriber(s);
+	
+* high-aviliable messaging, RabbitMq hacking:
+** basic usage:
+*** send/receive pattern:
+**** send a message to a queue:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel, which encapsulates most APIs get things done
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	//queue has a name, just like "subject" in nats
+	//or "topic" in nsqd
+	q, err := ch.QueueDeclare(
+		"hello", //name
+		false,   //durale
+		false,   //delete when unused
+		false,   //exclusive
+		false,   //no wait
+		nil,     //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgBody := "Hello RabbitMq"
+	err = ch.Publish(
+		"",     //exchange
+		q.Name, //routine key
+		false,  //mandatory
+		false,  //immediate
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte(msgBody),
+		})
+	failOnError(err, "Failed to publish a message")
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+      in the previous code, we send a message to a queue, which name is "hello";
+**** receive a message from a queue:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	q, err := ch.QueueDeclare(
+		"hello", //name
+		false,   //durale
+		false,   //delete when unused
+		false,   //exclusive
+		false,   //no wait
+		nil,     //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		true,  //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+      in the previous code, we receive a message from a queue, which name is "hello";
+*** working queue pattern:
+	working queue is used to distribute tasks among multiple workers;
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"os"
+	"strings"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	q, err := ch.QueueDeclare(
+		"hello-tasks", //name
+		false,         //durale
+		false,         //delete when unused
+		false,         //exclusive
+		false,         //no wait
+		nil,           //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgBody := bodyFrom(os.Args)
+	err = ch.Publish(
+		"",     //exchange
+		q.Name, //routine key
+		false,  //mandatory
+		false,  //immediate
+		amqp.Publishing{
+			DeliveryMode: amqp.Persistent,
+			ContentType:  "text/plain",
+			Body:         []byte(msgBody),
+		})
+	failOnError(err, "Failed to publish a message")
+}
+
+func bodyFrom(args []string) string {
+	var s string
+	if (len(args) < 2) || os.Args[1] == "" {
+		s = "hello..."
+	} else {
+		s = strings.Join(args[1:], " ")
+	}
+	return s
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    in the code, we simulate a task by "dots" in the message, example: hello...
+    is a task need to excute 3 seconds;
+#+BEGIN_SRC bash
+    go run new_tasks.go hello....
+#+END_SRC
+    refactor the receiver code:
+#+BEGIN_SRC go
+package main
+
+import (
+	"bytes"
+	"log"
+	"time"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	q, err := ch.QueueDeclare(
+		"hello-tasks", //name
+		false,         //durale
+		false,         //delete when unused
+		false,         //exclusive
+		false,         //no wait
+		nil,           //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		true,  //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+			dotCnt := bytes.Count(d.Body, []byte("."))
+			log.Printf("This worker will sleep %d seconds.\n", dotCnt)
+			t := time.Duration(dotCnt)
+			time.Sleep(t * time.Second)
+			log.Println("Done")
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    now let's see how the messages in queue dispatched:
+    open three terminal, two for workers and one for the task-generator:
+	# shell 1
+    go run worker.go
+    # shell 2
+    go run worker.go
+    # shell 3
+    [[file:./graph/new_tasks.png]]
+    let's see what happen to the shell 1 and shell 2:
+    [[file:./graph/shell1.png]]
+    shell 1 receive message 1,3,5
+    [[file:./graph/shell2.png]]
+    shell 2 receive message 2,4
+    every consumer will get the same number of messages;
+		
+*** deal with message acknowledgment:
+    what will happen when one worker crash down? if 
+    not all the messages is been processed? RabbitMq can use
+    "acks" to make sure no message lost even if the workers
+    occasionally die.
+    
+    first let's see what happen when "acks" not used;
+    in the "working queue pattern" we send the 6th message:
+#+BEGIN_SRC bash
+go run new_tasks.go sixth Message..........
+#+END_SRC    
+    shell 2:
+	[[file:graph/shell2-kill.png][the 6th message shell 2]]
+    when enter "Ctrl+C" in shell 2, nothing happen in shell 1;
+    so, we can deduce that 6th message is losting forever;
+
+	we change code in "worker.go":
+#+BEGIN_SRC go
+msgs, err := ch.Consume(
+		q.Name,
+		"",
+		//true,  //auto ack
+		false, //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+			dotCnt := bytes.Count(d.Body, []byte("."))
+			log.Printf("This worker will sleep %d seconds.\n", dotCnt)
+			t := time.Duration(dotCnt)
+			time.Sleep(t * time.Second)
+			log.Println("Done")
+			d.Ack(false)
+		}
+	}()
+#+END_SRC
+    we set "autoack" in the consumer to false; means that when the worker
+finish task, it will not send a ack automaticlly; so this require us to manually
+send a "ack" -- "d.Ack(false)"; let's see how this will affect message dilivery:
+    [[file:graph/ack_send.png][send five tasks to rebbitMq]]
+
+    the fifth message will be delivered to the shell 1 according the round robin method.
+    then we manually kill the session in shell 1. this is what we get:
+
+    [[file:graph/ack_shell1.png][manually kill shell 1 session when recv the 5th message]]
+
+    after the worker in shell 1 is killed, the 5th message will redeliver to worker in shell 2:
+
+    [[file:graph/ack_shell2.png][the 5th message redeliver to shell 2]]
+*** RabbitMQ message durability:
+    when rabbitmq quite or crash, the queues and messages in these queues will losted!
+    we need to mark both the queue and messages as durable.
+    (the publishers and subscribers both declear them as durable)
+**** publisher and subcriber queue durability not match
+	 if the publisher declear the queue as durable:
+#+BEGIN_SRC go
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	q, err := ch.QueueDeclare(
+		"hello-tasks-dur", //name
+		true,  //durable
+		false, //delete when unused
+		false, //exclusive
+		false, //no wait
+		nil,   //arguments
+	)
+#+END_SRC
+    but the subcriber not declear the queue as durable:
+#+BEGIN_SRC go
+	//declare a queue for us to send to,
+	//then publish messages to this queue
+	q, err := ch.QueueDeclare(
+		"hello-tasks-dur", //name
+		false,             //durale
+		false,             //delete when unused
+		false,             //exclusive
+		false,             //no wait
+		nil,               //arguments
+	)
+#+END_SRC
+    when we run the worker: go run worker.go, we get an error:
+    [[file:graph/durable_no_match.png][queue durablity not match error]]
+
+	after change subscriber's queue declearation:
+#+BEGIN_SRC go
+	q, err := ch.QueueDeclare(
+		"hello-tasks-dur", //name
+		true,              //durale
+		false,             //delete when unused
+		false,             //exclusive
+		false,             //no wait
+		nil,               //arguments
+	)
+#+END_SRC
+    run the worker again:
+	[[file:graph/durable_match.png][the durability of publisher and subcriber matches]]
+**** publisher use a durable queue, but the messages it send not persistent
+	 in the publisher, when we send a message:
+#+BEGIN_SRC go
+err = ch.Publish(
+		"",     //exchange
+		q.Name, //routine key
+		false,  //mandatory
+		false,  //immediate
+		amqp.Publishing{
+			//DeliveryMode: amqp.Persistent,
+			ContentType: "text/plain",
+			Body:        []byte(msgBody),
+		})
+#+END_SRC
+    we publish two message to server:
+
+    [[file:graph/publish_two_nodure_messages.png][publish two no-durable messages to rabbitmq-server]]
+
+    then use rabbitmqctrl tool inspect the server:
+
+    [[file:graph/inspect_queues_1.png][rabbitmq queues inspection]]
+
+    but after that we restart rabbitmq-server:
+    *sudo serveice restart rabbitmq-server*
+    then inspect queues again:
+
+	[[file:graph/inspect_qqueue_2.png][inspect the queues when the sended messages are not durable]]
+
+	so we can get a conclusion: In order to get "message durability", we must provide 
+    the follow guarantee:
+    1. a durable queue;
+    2. the messages which in this queue is persistent;
+**** messages fair dispatch
+	 in the previous examples, rabbitmq-server dispatch messages using a round robin method;
+     it do not look the number of unacknowledged messages for a consumer. 
+#+BEGIN_SRC go
+     err = ch.Qos(1, //prefetch count
+                  0, //prefetch size
+                  false)
+     failOnError(err, "Failed to set Qos")
+#+END_SRC     
+     prefetch count set to 1, agree that is server not receive a ack from client, it will not
+     dispatch the next message to this client.
+*** publish/subcriber pattern
+**** declear an exchange
+	deliver a message to multiple consumers, the core idea in the messaging model in RabbitMQ:
+
+    [[file:graph/rabbit_exchange_model.png][the core messaging model in rabbitmq]]
+    
+    the producer send its message to an "Exchange", the exchange deliver this message to queues it
+    knows; so the producer have no knowledge about any queue.
+
+	now we can publish message to a named exchange:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"os"
+	"strings"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare(
+		"logs",   // nane
+		"fanout", // type
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	failOnError(err, "Failed to declear an exchange")
+
+	msgBody := bodyFrom(os.Args)
+	err = ch.Publish(
+		"logs", //exchange
+		"",     //routine key
+		false,  //mandatory
+		false,  //immediate
+		amqp.Publishing{
+			DeliveryMode: amqp.Persistent,
+			ContentType:  "text/plain",
+			Body:         []byte(msgBody),
+		})
+	failOnError(err, "Failed to publish a message")
+}
+
+func bodyFrom(args []string) string {
+	var s string
+	if (len(args) < 2) || os.Args[1] == "" {
+		s = "hello..."
+	} else {
+		s = strings.Join(args[1:], " ")
+	}
+	return s
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+
+#+END_SRC
+    when we run the code, then use rabbitmqctrl to inspect exchange messages:
+
+    [[file:graph/list-exchanges.png][list all the exchages after declear an exchange]]
+
+    we can see our exchange which name is "logs" and type is "fanout"; in the code
+    snippet, the publisher just declear a exchange and send message to this exchange;
+**** use temporary queues
+	subscriber need the follow step:
+    declear exchange(same as the publisher)
+            |
+			|
+            v
+    declear temp queue 
+            |
+			|
+            v
+    bind temp queue to the exchange 
+            |
+            |
+            v
+    waiting message on the queue:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare(
+		"logs",   // nane
+		"fanout", // type
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	failOnError(err, "Failed to declear an exchange")
+
+	q, err := ch.QueueDeclare(
+		"",    //empty name
+		false, //durale
+		false, //delete when unused
+		true,  //exclusive
+		false, //no wait
+		nil,   //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	//bind queue to a exchange
+	err = ch.QueueBind(
+		q.Name,
+		"",
+		"logs",
+		false,
+		nil,
+	)
+	failOnError(err, "Failed to bind the queue to exchange")
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		true,  //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+**** do pub/sub
+	 [[file:graph/subscribe_run.png][run a subscriber and redirect the messages to file]]
+
+     [[file:graph/subscribe_run_console.png][run a subscriber and redirect the messages to console]]	 
+	 
+	 then publish three message to the "logs" exchange on server:
+	 [[file:graph/publish_to_exchange.png][publish three messages to "logs" exchange]]
+
+     then we look at the two subscribers:
+	 [[file:graph/subscriber_1.png][subcribe 1 messages receive]]
+
+	 [[file:graph/subscriber_2.png][subscriber 2 recieve messages]]
+	 
+	 use rabbitmqctrl check the queue binding information:
+	 [[file:graph/queue_bindings.png][list queue bindings after two subscriber running]]
+     two rand-name queue is binding the "logs" exchange.
+*** routing(receiving messages selectively)
+	In some sences, one subscriber only want to receive a subset messages from 
+    the exchange.we can use the "routing_key" in queue binding, a subscriber 
+    only intrest the message with such "routing_key".
+	
+	We can do an experiment, publisher generate a ball in random color every second;
+    then send the ball to exchange; one subscriber only interest the red balls, so it
+    bind the queue use "red" as the "routing_key"; another subscriber interest green
+    and blue balls, so it bind the queue use "green" and "blue" as the "routing_key".
+	
+	publisher.go:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"math/rand"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	routineKeys := []string{"red", "green", "blue"}
+
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare(
+		"balls",  // name
+		"direct", // this is a direct exchange
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	failOnError(err, "Failed to declear an exchange")
+
+	msgBody := bodyFrom(os.Args)
+	for {
+		keyIdx := rand.Intn(3)
+
+		err = ch.Publish(
+			"balls",             //exchange
+			routineKeys[keyIdx], //routine key
+			false,               //mandatory
+			false,               //immediate
+			amqp.Publishing{
+				DeliveryMode: amqp.Persistent,
+				ContentType:  "text/plain",
+				Body:         []byte(msgBody + "[" + routineKeys[keyIdx] + "]"),
+			})
+		failOnError(err, "Failed to publish a message")
+
+		time.Sleep(time.Second)
+	}
+}
+
+func bodyFrom(args []string) string {
+	var s string
+	if (len(args) < 2) || os.Args[1] == "" {
+		s = "hello..."
+	} else {
+		s = strings.Join(args[1:], " ")
+	}
+	return s
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC	
+    publisher send balls to an exchange which name is "balls", each publish
+    use a random routine key;
+
+	subscribe.go:
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"os"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare(
+		"balls",  // nane
+		"direct", // type
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	failOnError(err, "Failed to declear an exchange")
+
+	q, err := ch.QueueDeclare(
+		"",    //empty name
+		false, //durale
+		false, //delete when unused
+		true,  //exclusive
+		false, //no wait
+		nil,   //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	//bind queue to a exchange
+	for _, routinekey := range os.Args[1:] {
+		log.Printf("Binding queue %s to exchange %s with routing key %s",
+			q.Name, "balls", routinekey)
+
+		err = ch.QueueBind(
+			q.Name,
+			routinekey,
+			"balls",
+			false,
+			nil,
+		)
+		failOnError(err, "Failed to bind the queue to exchange")
+	}
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		true,  //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    subcriber receive messages selectively. the subcriber which only receive red ball:
+
+    [[file:graph/sub_red.png][subsciber which only recieve red ball]]
+
+	the subscriber which recieve green and blue ball:
+
+	[[file:graph/sub_blue_green.png][subcriber only recieve blue and green balls]]    
+	
+	this messages routine setup:
+
+	[[file:graph/routine_setup.png][message routine setup]]
+*** topics(receiving messages based on a pattern)
+	if we want some more flexibility when receive messages on server, we can
+    try a new kind of exchange: topic.
+
+	topic rule: the routing_key of topic must be a list of words, delimited by
+    dots, two important special cases for binding keys:
+    : * (star) can substitute for exactly one word.
+    : # (hash) can substitute for zero or more words.
+	
+	now we do an experiment, we create a topic exchange by publisher; one subcriber
+    bind a queue with the topic exchage using "*.orange.*" as routine-key; another
+    subscriber use two routine-keys: "*.*.rabbit" and "lazy.#", following is the setup:
+	
+	[[file:graph/topic_setup.png][animals topic setup]]
+    Fig.1 topic exchange routine setup
+
+	topic_pub.go
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"math/rand"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/streadway/amqp"
+)
+
+var characters = []string{"strive", "mediocrity", "lazy"}
+var colors = []string{"red", "green", "orange"}
+var animals = []string{"rabbit", "tiger", "duck"}
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare(
+		"animal-checking", // nane
+		"topic",           // type
+		true,              // durable
+		false,             // auto-deleted
+		false,             // internal
+		false,             // no-wait
+		nil,               // arguments
+	)
+	failOnError(err, "Failed to declear an exchange")
+
+	msgBody := bodyFrom(os.Args)
+	for {
+		rtkey := genRouteKey()
+
+		err = ch.Publish(
+			"animal-checking", //exchange
+			rtkey,             //routine key
+			false,             //mandatory
+			false,             //immediate
+			amqp.Publishing{
+				DeliveryMode: amqp.Persistent,
+				ContentType:  "text/plain",
+				Body:         []byte(msgBody + "[" + rtkey + "]"),
+			})
+		failOnError(err, "Failed to publish a message")
+
+		time.Sleep(time.Second)
+	}
+}
+
+func genRouteKey() string {
+	chaIdx, corIdx, aniIdx := rand.Intn(3), rand.Intn(3), rand.Intn(3)
+	return characters[chaIdx] + "." + colors[corIdx] + "." + animals[aniIdx]
+}
+
+func bodyFrom(args []string) string {
+	var s string
+	if (len(args) < 2) || os.Args[1] == "" {
+		s = "hello..."
+	} else {
+		s = strings.Join(args[1:], " ")
+	}
+	return s
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    in the code, we publish message use a random generate routine-key;
+
+	topic_sub.go
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"os"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare(
+		"animal-checking", // nane
+		"topic",           // type
+		true,              // durable
+		false,             // auto-deleted
+		false,             // internal
+		false,             // no-wait
+		nil,               // arguments
+	)
+	failOnError(err, "Failed to declear an exchange")
+
+	q, err := ch.QueueDeclare(
+		"",    //empty name
+		false, //durale
+		false, //delete when unused
+		true,  //exclusive
+		false, //no wait
+		nil,   //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	if len(os.Args) < 2 {
+		log.Printf("Usage: %s [binding_key]...", os.Args[0])
+		os.Exit(0)
+	}
+
+	//bind queue to a exchange
+	for _, routinekey := range os.Args[1:] {
+		log.Printf("Binding queue %s to exchange %s with routing key %s",
+			q.Name, "animal-checking", routinekey)
+
+		err = ch.QueueBind(
+			q.Name,
+			routinekey,
+			"balls",
+			false,
+			nil,
+		)
+		failOnError(err, "Failed to bind the queue to exchange")
+	}
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		true,  //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			log.Printf("Recived a message: %s\n", d.Body)
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    in the code, we subcribe message using command line arguments as routine-key;
+
+    #shell 1
+	$go run topic_sub.go *.orange.*
+
+    [[file:graph/topic_sub_start_1.png][wanting messages which routine-key is *.orange.*]]
+
+	#shell 2
+    $go run topic_sub.go *.*.rabbit lazy.#
+
+	[[file:graph/topic_sub_start_2.png][want messages which routine-key is *.*.rabbit or lazy.#]]
+
+    #shell 3
+	$go run topic_pub.go some animals comming!
+    
+	shell 1 only receive *orange* animal:
+    [[file:graph/shell_1_orange.png][shell1 only receive orange animals]]
+
+	shell 2 recive all lazy animals and all kinds of rabbit, what a nightmare!!
+    [[file:graph/shell_1_lzay.png][shell2 lazy and rabbit]]
+*** RPC (request/reply pattern)
+	want run a function on a remote computer and wait for the result.
+	
+	a RPC server is waiting on a rpc_queue, RPC client publish request
+    on the rpc_queue; a RPC setup is like this:
+
+    [[file:graph/rpc_setup.png][rpc_setup]]
+
+	
+	rpc_server.go
+#+BEGIN_SRC go
+package main
+
+import (
+	"log"
+	"strconv"
+
+	"github.com/streadway/amqp"
+)
+
+func main() {
+	//dial rabbitmq server
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672")
+	failOnError(err, "Failed to connect to RabbitMq")
+	defer conn.Close()
+
+	//create a channel
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to create channel")
+	defer ch.Close()
+
+	q, err := ch.QueueDeclare(
+		"rpc_queue", //empty name
+		false,       //durale
+		false,       //delete when unused
+		false,       //exclusive
+		false,       //no wait
+		nil,         //arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	err = ch.Qos(
+		1, //prefetch count
+		0, //prefetch size
+		false,
+	)
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",
+		false, //auto ack
+		false, //exclusive
+		false, //no-local
+		false, //no-wait
+		nil,   //args
+	)
+	failOnError(err, "Can not register a consumer")
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			//log.Printf("Recived a message: %s\n", d.Body)
+			n, err := strconv.Atoi(string(d.Body))
+			failOnError(err, "Failed to convert body to integer")
+
+			log.Printf(" [.] fib(%d)", n)
+			response := fib(n)
+
+			err = ch.Publish(
+				"",        //use the default exchange
+				d.ReplyTo, //routing key
+				false,
+				false,
+				amqp.Publishing{
+					ContentType:   "text/plain",
+					CorrelationId: d.CorrelationId,
+					Body:          []byte(strconv.Itoa(response)),
+				},
+			)
+			failOnError(err, "Failed to publish a message")
+
+			d.Ack(false)
+		}
+	}()
+
+	log.Printf(" [*]Waiting for message, To exit press Ctrl+C")
+	<-forever
+}
+
+func fib(n int) int {
+	if n == 0 {
+		return 0
+	} else if n == 1 {
+		return 1
+	} else {
+		return fib(n-1) + fib(n-2)
+	}
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+    
+    rpc_client.go
+#+BEGIN_SRC go
+    package main
+
+import (
+	"log"
+	"math/rand"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/streadway/amqp"
+)
+
+func randomString(l int) string {
+	bytes := make([]byte, l)
+	for i := 0; i < l; i++ {
+		bytes[i] = byte(randInt(65, 90))
+	}
+	return string(bytes)
+}
+
+func randInt(min int, max int) int {
+	return min + rand.Intn(max-min)
+}
+
+func fibonacciRPC(n int) (res int, err error) {
+	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	failOnError(err, "Failed to connect to RabbitMQ")
+	defer conn.Close()
+
+	ch, err := conn.Channel()
+	failOnError(err, "Failed to open a channel")
+	defer ch.Close()
+
+	q, err := ch.QueueDeclare(
+		"",    // name
+		false, // durable
+		false, // delete when unused
+		true,  // exclusive
+		false, // noWait
+		nil,   // arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	msgs, err := ch.Consume(
+		q.Name, // queue
+		"",     // consumer
+		true,   // auto-ack
+		false,  // exclusive
+		false,  // no-local
+		false,  // no-wait
+		nil,    // args
+	)
+	failOnError(err, "Failed to register a consumer")
+
+	corrId := randomString(32)
+
+	err = ch.Publish(
+		"",          // exchange
+		"rpc_queue", // routing key
+		false,       // mandatory
+		false,       // immediate
+		amqp.Publishing{
+			ContentType:   "text/plain",
+			CorrelationId: corrId,
+			ReplyTo:       q.Name,
+			Body:          []byte(strconv.Itoa(n)),
+		})
+	failOnError(err, "Failed to publish a message")
+
+	for d := range msgs {
+		if corrId == d.CorrelationId {
+			res, err = strconv.Atoi(string(d.Body))
+			failOnError(err, "Failed to convert body to integer")
+			break
+		}
+	}
+
+	return
+}
+
+func main() {
+	rand.Seed(time.Now().UTC().UnixNano())
+
+	n := bodyFrom(os.Args)
+
+	log.Printf(" [x] Requesting fib(%d)", n)
+	res, err := fibonacciRPC(n)
+	failOnError(err, "Failed to handle RPC request")
+
+	log.Printf(" [.] Got %d", res)
+}
+
+func bodyFrom(args []string) int {
+	var s string
+	if (len(args) < 2) || os.Args[1] == "" {
+		s = "30"
+	} else {
+		s = strings.Join(args[1:], " ")
+	}
+	n, err := strconv.Atoi(s)
+	failOnError(err, "Failed to convert arg to integer")
+	return n
+}
+
+func failOnError(err error, msg string) {
+	if err != nil {
+		log.Fatalf("%s: %s", msg, err)
+	}
+}
+#+END_SRC
+** rabbitmq cluster prepare:
+*** ways of forming a rabbit cluster:	
+    :Declaratively by listing cluster nodes in config file
+    :Declaratively using DNS-based discovery
+    :Declaratively using AWS (EC2) instance discovery (via a plugin)
+    :Declaratively using Kubernetes discovery (via a plugin)
+    :Declaratively using Consul-based discovery (via a plugin)
+    :Declaratively using etcd-based discovery (via a plugin)
+    :Manually with rabbitmqctl
+    so many ways!!!!
+*** node identifiers(name):
+	rabbit@node1.messaging.svc.local
+    prifix: rabbit
+    hostname: node1.messaging.svc.local
+
+	if more than on nodes is running on a given host, they must use different prefixs:
+	rabbit1@hostname
+    rabbit2@hostname
+
+	when a node start up, it will check RABBITMQ_NODENAME env varible; if not setup,
+    just resoves its hostname and prepends "rabbit" to it.
+*** requirements to forming:
+	in order to forming a cluster, each node must can address any other node's domain name;
+	: DNS records
+    : Local host files(e.g. /etc/hosts)
+*** port access:
+	os or firewalls may prevent nodes and CLI tools communicating with each other. make sure
+	the following port avalible:
+	
+	
+    4369: epmd, a helper discovery daemon used by RabbitMQ nodes and CLI tools
+
+    5672, 5671: used by AMQP 0-9-1 and 1.0 clients without and with TLS
+
+    25672: used for inter-node and CLI tools communication (Erlang distribution server port) 
+           and is allocated from a dynamic range (limited to a single port by default, computed 
+           as AMQP port + 20000). Unless external connections on these ports are really necessary 
+           (e.g. the cluster uses federation or CLI tools are used on machines outside the subnet), 
+           these ports should not be publicly exposed. See networking guide for details.
+
+    35672-35682: used by CLI tools (Erlang distribution client ports) for communication with nodes 
+           and is allocated from a dynamic range (computed as server distribution port + 10000 
+           through server distribution port + 10010). See networking guide for details.
+
+    15672: HTTP API clients, management UI and rabbitmqadmin (only if the management plugin is enabled)
+
+    61613, 61614: STOMP clients without and with TLS (only if the STOMP plugin is enabled)
+
+    1883, 8883: (MQTT clients without and with TLS, if the MQTT plugin is enabled
+
+    15674: STOMP-over-WebSockets clients (only if the Web STOMP plugin is enabled)
+
+    15675: MQTT-over-WebSockets clients (only if the Web MQTT plugin is enabled)
+
+    15692: Prometheus metrics (only if the Prometheus plugin is enabled)
+*** nodes in cluster:
+	1. all data and status information is replicated across all nodes.
+       (message queues is located on one node, but they can be mirrored to other nodes too)
+	2. all nodes are equal peers(no leader or follower).
+    3. communication between node and CLI tool, or node between node use cookie
+       as the share secret, every node in a cluster must share the same cookie;
+      
+	   this erlang cookie generation should be done at cluster deployment stage, using
+       Docker, BOSH or similar;
+	4. odd numbers of cluster node are highly recommanded;
+	5. clustering and clients:
+	   a client can connect to any node and perform any operation. nodes will route
+       operations to the queue master node transparently to clients.
+
+	   [[file:graph/mq_cluster_op_routine.png][rabbitmq cluster operation routine]]
+*** observe the cluster:
+	connections, channels and queues will distribute across cluster nodes.
+
+	rabbitmq-diagnostics, 
+    rabbitmqctl, ...
+
+	cluster observation mechanism:
+	"cluster command" will first connect to one node, through this node to
+    collect all nodes information. Then retrive and combine their respective state;
+*** node failure handling:
+	queue mirroring?
+	it is not recommanded to run clusters that span WLAN
+*** metrics and statics:
+** docker rabbitmq cluster:
+*** create 3 container running rabbitmq instances
+	docker run -d --hostname rabbit1 --name rabbit1 -p 15672:15672 -p 5672:5672 -e RABBITMQ_ERLANG_COOKIE='rabbitcookie' rabbitmq
+    docker run -d --hostname rabbit2 --name rabbit2 -p 5673:5672 --link rabbit1:host1 -e RABBITMQ_ERLANG_COOKIE='rabbitcookie' rabbitmq
+    docker run -d --hostname rabbit3 --name rabbit3 -p 5674:5672 --link rabbit1:host1 --link rabbit2:host2 -e RABBITMQ_ERLANG_COOKIE='rabbitcookie' rabbitmq
+*** add rabbitmq node to cluster
+**** config rabbit1
+	 enter the first rabbitmq container rabbit1:
+	 : docker exec -it rabbit1 bash
+	
+	 check cluster information:
+     : rabbitmqctl cluster_status
+
+	 rabbitmqctl stop_app
+     rabbitmqctl reset
+     rabbitmqctl start_app
+     exit
+**** config rabbit2
+	 rabbitmqctl stop_app
+	 rabbitmqctl reset
+	 rabbitmqctl join_cluster rabbit@rabbit1   //if --ram, stand for RAM node
+	 rabbitmqctl start_app
+	 exit
+**** config rabbit3
+	 rabbitmqctl stop_app
+	 rabbitmqctl reset
+	 rabbitmqctl join_cluster --ram rabbit@rabbit1
+	 rabbitmqctl start_app
+	 exit
+*** enable management
+    docker exec -it rabbit1 bash
+	rabbitmq-plugins enable rabbitmq_management
+	
+** rabbitmq cluster action:
+*** rabbitmqctrl clustering transcript:
+**** environment:
+    | mechine1                                                                                                   |
+    |------------------------------------------------------------------------------------------------------------+
+    | Linux hjiang-HP 5.3.0-18-generic #19-Ubuntu SMP Tue Oct 8 20:14:06 UTC 2019 x86_64 x86_64 x86_64 GNU/Linux |
+
+	| mechine2                                                                                                             |
+	|----------------------------------------------------------------------------------------------------------------------|
+	| Linux xiufuzhang 5.3.0-51-generic #44~18.04.2-Ubuntu SMP Thu Apr 23 14:27:18 UTC 2020 x86_64 x86_64 x86_64 GNU/Linux |
+
+	| mechine3                                                                                                 |
+	|----------------------------------------------------------------------------------------------------------|
+	| Linux nsxia 4.15.0-91-generic #92-Ubuntu SMP Fri Feb 28 11:09:48 UTC 2020 x86_64 x86_64 x86_64 GNU/Linux |
+
+	we start rabbitmq-server on each node, now each node is the only node in its own cluster.
+**** something about haproxy:
+	1. feature 1 --- load balancing
+        A) more than 10 balance methods:
+           a. round robin for short connection;
+           b. least conn for long connection;
+           c. source
+           d. URI
+           e. hdr(HTTP head field)
+           d. first
+        B) support per-server weight for every balance method
+		C) support dynamic weights for round-robin, least conn,
+		   and consistent hashing;
+		D) slow start is supported using dynamic weights;
+		E) supply hasing;
+		F) consistent hashing protects server farms againest server redistribution;
+		G) interal metrics;
+	2. feature 2 --- stickiness
+	3. feature 3 --- sampling and converting information
+	4. feature 4 --- maps:
+	   Maps is just a two columns file loaded into memory; it is used mostly 
+	   to translate the client ip address to an AS number or country code;
+	   (maps can be updated on the fly and binary search tree indexing makes it good fast)
+	5. feature 5 --- conditions with ACLs:
+	   what is a ACL? the doucument give such a definition:
+       - step1: a sample fetch method to retrieve the element to test ;
+		 example: *take the sample from HTTP "Host" header*
+		 
+       - step2: an optional series of converters to transform the element ;
+		 example: *using a converter to convert the sample in the previous step to low case*
+
+       - step3: a list of patterns to match against ;
+		 example: *match the result in step 2 to a number of regex patterns*
+
+       - a matching method to indicate how to compare the patterns with the sample
+	6. feature 6 --- content switching:
+	7. feature 7 --- stick tables:
+	   Q: what is the entry in a stick table? 
+       A: the table is used to store stickness information, just a reference to
+          the server a certain vistor was directed to.
+		  key: id of the visitor, (ip address, SSL id of the connection...)
+		  value: the server's identifier
+    8. feature 8 --- formatted strings:
+	9. feature 9 --- HTTP rewriting and redirection:
+	   haproxy support:
+	   A. regex-based URL and header rewriting;
+       B. headers may be appended, deleted and replaced;
+	10. feature 10 --- server protection:
+		A) the servers are no longer exposed to invalid or incomplete request,
+           the servers stand behind shields created by haproxy;
+		B) queued requests ensure better server response time;
+**** a simple load-balancing using haproxy:
+	 

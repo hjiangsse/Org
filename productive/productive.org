@@ -1,0 +1,68 @@
+* fast directory change:
+** when you working on a deep directory tree, use pushd,popd and dirs,
+   for fast command line navagation:
+
+   pushd /tmp/test1
+
+   pushd /tmp/test8
+   will push /tmp/test8 into the top of the stack and change cwd into /tmp/test8
+   
+   popd 
+   will pop /tmp/test8 from the top of the stack and change back to /tmp/test1
+
+   dird
+   show current stack
+** using "bd" utility
+   pwd
+   /tmp/dir1/dir2/dir3/dir4
+
+   cd `bd dir2`
+   will change to dir2 in this dir tree
+* git clone a specific branch from repo:
+  git clone --single-branch --branch <branchname> <remote-repo>
+* branching in git:
+  git do not store data as a series of changesets or differences, but instead of a series of *snapshots*;
+  a nutshell about git branching:
+  https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell
+  
+* block and unblock network traffic from a specific ip address:
+  block:    sudo iptables -A INPUT -s 172.22.194.141 -j DROP
+  unblock:  sudo iptables -D INPUT -s 172.22.194.141 -j DROP
+* use jekyll write your personal website
+* install rebbitmq-server on debain/ubuntu:
+#+BEGIN_SRC sh
+#!/bin/sh
+
+## If sudo is not available on the system,
+## uncomment the line below to install it
+# apt-get install -y sudo
+
+sudo apt-get update -y
+
+## Install prerequisites
+sudo apt-get install curl gnupg -y
+
+## Install RabbitMQ signing key
+curl -fsSL https://github.com/rabbitmq/signing-keys/releases/download/2.0/rabbitmq-release-signing-key.asc | sudo apt-key add -
+
+## Install apt HTTPS transport
+sudo apt-get install apt-transport-https
+
+## Add Bintray repositories that provision latest RabbitMQ and Erlang 21.x releases
+sudo tee /etc/apt/sources.list.d/bintray.rabbitmq.list <<EOF
+## Installs the latest Erlang 22.x release.
+## Change component to "erlang-21.x" to install the latest 21.x version.
+## "bionic" as distribution name should work for any later Ubuntu or Debian release.
+## See the release to distribution mapping table in RabbitMQ doc guides to learn more.
+deb https://dl.bintray.com/rabbitmq-erlang/debian bionic erlang
+deb https://dl.bintray.com/rabbitmq/debian bionic main
+EOF
+
+## Update package indices
+sudo apt-get update -y
+
+## Install rabbitmq-server and its dependencies
+sudo apt-get install rabbitmq-server -y --fix-missing
+#+END_SRC
+* rabbitmq and docker:
+  sudo docker run -d --hostname rabbit1 --name rabbit rabbitmq:3
