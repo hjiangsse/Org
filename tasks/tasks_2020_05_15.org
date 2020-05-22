@@ -1,0 +1,11 @@
+* learning org mode scheduling
+** DONE [#B] read some online document
+   press [Shift + up arrow]
+   press [C-c t] looping in TODO, DONE, nothing
+** DONE build the scheduling of current day
+* using rust to hacking bst tree algorithms
+** DONE [#B] hacking rust impl
+** DONE [#B] tree rebuild accoring the traverse result
+** DONE [#B] bst tree node delete
+* data partition researching
+** DONE [#B] reading and hacking...

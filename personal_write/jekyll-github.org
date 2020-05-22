@@ -1,0 +1,14 @@
+Jekyll + Github Page的组合，搭建一个个人Blog已经绰绰有余了。
+写技术Blog不需要眩酷的界面，华丽的图片，一个Markdown文件就是
+一篇文章，简单又通透。曾经租过主机和域名搭过WordPress网站，
+烦琐的流程，沉重的插件，还有一笔不小的开销......; "到手之后，
+就味同嚼蜡了。" 扬子云说过，一个人学到点东西应该立刻用在自己
+的生产生活中，次等的才去教授别人，最下等的是即不能行动又不能
+教人了。平生有时略有些疏狂了，但是在朗朗乾坤下公然“口嗨”的
+事，确实是万万不敢做的！
+
+jonathan mcglone good guides: 
+http://jmcglone.com/guides/github-pages/
+
+my personal page: 
+https://hjiangsse.github.io/

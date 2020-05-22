@@ -1,0 +1,4 @@
+* transaction in distribute data system
+** DONE concept of transaction
+* red-back tree create
+* something about riak
