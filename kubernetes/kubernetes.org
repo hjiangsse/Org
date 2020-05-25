@@ -1,0 +1,47 @@
+* Kubenetes Basics
+** Development and Deployment change in recent time 
+From monolithic apps to microservices:
+
+[[file:~/github/orgnization/graph/monotic.png][monotithic apps]]
+Fig 1. the horrible monolithic systems
+
+There are too many interdependent parts in the monolithic system, so integration
+and deployment were a nightmare. It forces to chopping them into individual 
+"microservices", each of these "microservices" can now be debuged, updated, and
+deployed individually without the whole project comming to a *standstill*.
+
+The microservices have lots of pros, but as their number increasing, a problem 
+is coming: How to manage this lots of microservices? how to provide a consistent
+enviroment to all this applications?
+
+** The gap between developers and oprationers
+
+To reduce the number of problems that only show up in production, it would be
+ideal if applications could run in the exact *same environment* during development
+and in production so they have the exact same operating system, libraries, system con-
+figuration, networking environment, and everything else.
+
+Ideally, you want the developers to deploy applications themselves without know-
+ing anything about the hardware infrastructure and without dealing with the ops
+team. This is referred to as NoOps. Obviously, you still need someone to take care of
+the hardware infrastructure, but ideally, without having to deal with peculiarities of
+each application running on it.
+
+Kubenetes is coming to rescure!!!
+** Container technology
+I don't want talk too much about container, you can go to Docker offical website to
+find some amazing resouces and documents.
+
+** The architecture of a Kubenetes cluster
+
+[[file:~/github/orgnization/graph/arch_cosmic.png][architecture in a cosmic way]]
+Fig 2. How Kubernetes group containers
+
+[[file:~/github/orgnization/graph/cluster_cosmic.png][kubernetes cluster in cosmic]]
+Fig 3. Kubernetes node cluster
+
+[[file:~/github/orgnization/graph/kube_arch.png][kube arc]]
+Fig 4. Architecture of a kube cluster
+
+So, the new sailer! Welcome to the ocean of Kubernetes! Fight the storms here, someday
+later, you will become the best pilot in this ocean!!
