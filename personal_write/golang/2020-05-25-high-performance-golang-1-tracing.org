@@ -1,0 +1,125 @@
+* execution tracer
+The execution tracer is integrated into the Go runtime, it does know what a go program is
+doing at a particular point in time.
+
+** an introduction example - mandelbrot generator
+ The github address of generator : https://github.com/campoy/mandelbrot.git, input the following
+ commands in your shell, finally will bron a mandelbrot.png, which is a 1024 * 1024 picture.
+
+ #+BEGIN_SRC bash
+ git clone https://github.com/campoy/mandelbrot.git
+ cd mandelbrot
+ git mod init mandelbrot
+ go build -o md && ./md
+ #+END_SRC
+
+ [[file:~/github/orgnization/graph/mandelbrot.png][generated mandelbrot.png]]
+ Fig 1. generated mandelbrot.png
+
+ But how long it takes to generate this picture?
+ #+BEGIN_SRC bash
+ $ time ./mb
+
+ real	0m3.842s
+ user	0m3.848s
+ sys	    0m0.004s
+ #+END_SRC
+
+** profile the generator
+#+BEGIN_SRC go
+pprof.StartCPUProfile(os.Stdout)
+defer pprof.StopCPUProfile()
+#+END_SRC
+
+add the privious code to the start of the main function of the generator; then
+#+BEGIN_SRC bash
+go build -o mb && ./mb > cpu.pprof
+#+END_SRC
+
+then analysing the cpu profile:
+#+BEGIN_SRC bash
+go tool pprof -http=:8080 cpu.pprof 
+#+END_SRC
+
+[[file:~/github/orgnization/graph/mb_cpu_profile.png][web pprof result]]
+Fig 2. web pprof mandelbrot program
+
+From the graph, we can conclude that main.fillPixel is actually doing most of the work.
+
+** tracing a program
+From the pprof result, we only know main.fillPixel doing the most work. But there are some
+hidden action happen beneath the program. What actions the goroutines did? The normal/block
+time of a goroutine? When the goroutine is blocked and Where the block happen? How GC influence
+the goroutine execution? 
+
+An example program:
+ #+BEGIN_SRC go
+ package main
+
+ import (
+	 "os"
+	 "runtime/trace"
+ )
+
+ func main() {
+	 trace.Start(os.Stdout)
+	 defer trace.Stop()
+
+	 ch := make(chan string)
+	 go func() {
+		 ch <- "HJIANG"
+	 }()
+
+	 <-ch
+ }
+ #+END_SRC
+
+Generate tracing file and open tracer window:
+ #+BEGIN_SRC bash
+ $go build && ./tracer > trace.out
+ $go tool trace trace.out
+ #+END_SRC
+
+ [[file:~/github/orgnization/graph/tracing_window.png][go tool trace window]]
+ Fig 3. tracing web window
+
+*** Inspect *Sheduler latency profile*:
+
+ [[file:~/github/orgnization/graph/scheduler_lantency.png][scheduler delay]]
+ Fig 4. scheduler delay
+
+Our simple program just do a channel insert and tracing. The previous graph show the schedule
+delay of these two operations.
+
+*** goroutine analysis
+From the "goroutine analysis", we know how many gorutines created and running in a function block.
+For each goroutine, we can inspect its running messages:
+
+ [[file:~/github/orgnization/graph/gorutine_analysis_1.png][go routine analysis]]
+Fig 5. go routine analysis window
+
+ [[file:~/github/orgnization/graph/gorutine_analysis_2.png][analysis a specific goroutine]]
+Fig 6. Info of a specific goroutine 
+
+*** View trace
+A trace view example:
+ [[file:~/github/orgnization/graph/trace_view.png][trace view]]
+Fig 7. a trace view web page(must use chrome)
+
+Tips:
+ + The ruler in the first line is the time line, we can see routines start at 0 us and 
+   end at 171.871 us.
+ + Goroutines: record the infomations of goroutines during the program lifetime, goroutine start
+   and end time. At a time stamp, the infomation is:
+
+ [[file:~/github/orgnization/graph/routine_info.png][routine information]]
+Fig 8. goroutine info
+
+ + Heap: the memory usage info during the program lifetime.
+ + Tread: the OS thread info during the program lifetime.
+ + Proc: virtual processor info during the program lifetime
+
+*** view events
+ [[file:~/github/orgnization/graph/view_events.png][view events]]
+
+Now, do some tracing yourself, and find more useful things in your program!:)
