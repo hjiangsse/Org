@@ -66,3 +66,22 @@ sudo apt-get install rabbitmq-server -y --fix-missing
 #+END_SRC
 * rabbitmq and docker:
   sudo docker run -d --hostname rabbit1 --name rabbit rabbitmq:3
+* linux find files complete some attribute:
+#+BEGIN_SRC bash
+  $find ./ -type f -size 512k -exec ls {} \;
+#+END_SRC
+  find all files which size is 512k under current directory.
+
+#+BEGIN_SRC bash
+  $find ./ -type f -size +2048k -exec ls {} \;
+#+END_SRC
+  find all files which size is bigger than 2048K under current directory
+* Awk: make programmer's life fly away
+** the awk language:
+*** pattern
++ BEGIN {statements}: initialization
++ END {statements}: wrapup
++ expression {statements}
++ /regex/ {statements}
++ compoun pattern {statements}
++ pattern1, pattern2 {statements} range [pattern1, pattern2]
